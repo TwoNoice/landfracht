@@ -10,23 +10,32 @@ Der Spielstand wandert nie zu einem Server, er bleibt im Browser des Spielers.
 
 ---
 
-## Schritt 0 — den ersten Stand festschreiben
+## Schritt 0 — die Unterschrift richtigstellen
 
-Das Verzeichnis ist bereits ein Git-Repository, alle Dateien sind vorgemerkt.
-Es fehlt nur noch, unter welchem Namen die Änderungen laufen sollen.
+Das Verzeichnis ist bereits ein Git-Repository, der erste Speicherpunkt ist
+angelegt. Er trägt aber vorerst nur eine Platzhalter-Adresse:
+`Nikla <landfracht@example.com>`.
 
-**Bevor du hier deine Mailadresse einträgst:** Bei einem öffentlichen
-Repository auf GitHub kann jeder die Adresse aus dem Verlauf auslesen. GitHub
-gibt dir deshalb eine Wegwerfadresse der Form
-`12345678+deinname@users.noreply.github.com`. Du findest sie nach der
-Anmeldung unter *Settings → Emails → Keep my email addresses private*. Nimm
-lieber die.
+Git schreibt an jeden Speicherpunkt, wer ihn gemacht hat — Name und
+Mailadresse, wie eine Unterschrift. Bei einem öffentlichen Repository auf
+GitHub kann jeder diese Adresse aus dem Verlauf auslesen. Trag deshalb hier
+**nicht** deine private Adresse ein, sondern die Wegwerfadresse, die GitHub
+dir gibt. Sie sieht so aus:
+`12345678+deinname@users.noreply.github.com` und steht nach der Anmeldung
+unter *Settings → Emails → Keep my email addresses private*.
+
+Sobald du sie hast, diese zwei Befehle — sie schreiben die Unterschrift des
+vorhandenen Speicherpunkts um:
 
 ```bash
-git config user.name "Dein Name"
 git config user.email "12345678+deinname@users.noreply.github.com"
-git commit -m "Landfracht, Stand vor der Veröffentlichung"
+git commit --amend --reset-author --no-edit
 ```
+
+Das geht nur, solange noch nichts hochgeladen ist. Also vor Schritt 3.
+Landest du bei einem klassischen Webhoster statt bei GitHub, kannst du den
+ganzen Schritt überspringen: dort werden nur Dateien hochgeladen, die
+Unterschrift sieht nie jemand.
 
 ---
 
