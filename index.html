@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+
+<title>Landfracht — Lohnfuhren auf dem Land</title>
+<meta name="description" content="Landfracht ist ein kostenloses Browserspiel über eine kleine landwirtschaftliche Fuhrunternehmung: Aufträge annehmen, Getreide, Ballen und Maschinen fahren, tanken, reparieren, den Betrieb ausbauen. Ohne Anmeldung, direkt im Browser.">
+<meta name="theme-color" content="#12160f">
+<meta name="color-scheme" content="dark">
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="symbol-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<!-- Vorschau beim Teilen. Nach dem Hochladen die beiden URLs auf die
+     endgueltige Adresse setzen; manche Dienste lesen nur absolute Pfade. -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Landfracht">
+<meta property="og:locale" content="de_DE">
+<meta property="og:title" content="Landfracht — Lohnfuhren auf dem Land">
+<meta property="og:description" content="Ein Traktor, ein Anhänger, ein Auftragsbuch. Kostenloses Browserspiel über eine kleine landwirtschaftliche Fuhrunternehmung.">
+<meta property="og:image" content="vorschau.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Blick von oben auf Felder, einen Hof und ein Gespann aus Traktor und beladenem Anhänger auf der Landstraße.">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="spiel">
+
+  <canvas id="leinwand"></canvas>
+
+  <!-- Schmaler Balken oben -->
+  <div id="kopfleiste">
+    <div class="kf-block"><span class="kf-lbl">Geld</span><span class="kf-wert" id="kf-geld">–</span></div>
+    <div class="kf-block"><span class="kf-lbl">Ruf</span><span class="kf-wert" id="kf-ruf">–</span></div>
+    <div class="kf-block"><span class="kf-lbl">Zeit</span><span class="kf-wert" id="kf-zeit">–</span></div>
+
+    <div class="kf-block bar">
+      <span class="kf-lbl">Diesel</span>
+      <div class="balken"><i id="kf-diesel-b"></i></div>
+      <span class="kf-wert klein" id="kf-diesel">–</span>
+    </div>
+
+    <div class="kf-block bar">
+      <span class="kf-lbl">Zustand</span>
+      <div class="balken"><i id="kf-zustand-b"></i></div>
+      <span class="kf-wert klein" id="kf-zustand">–</span>
+    </div>
+
+    <div class="kf-block auftrag" id="kf-auftrag"><span class="leer">Kein Auftrag angenommen</span></div>
+
+    <div class="kf-block knoepfe">
+      <button data-panel="boerse">Börse<b>B</b></button>
+      <button data-panel="hof">Hof<b>H</b></button>
+      <button data-panel="haendler">Händler<b>K</b></button>
+      <button data-panel="buch">Buch<b>U</b></button>
+    </div>
+  </div>
+
+  <!-- Tacho unten links -->
+  <div id="tacho">
+    <div class="tempo"><span id="t-kmh">0</span><small>km/h</small></div>
+    <div class="gang" id="t-gang">N</div>
+    <div class="ladung" id="t-ladung">leer</div>
+  </div>
+
+  <!-- Kontexthinweis -->
+  <div id="hinweis"></div>
+
+  <!-- Laden / Abladen -->
+  <div id="fortschritt" class="aus">
+    <div class="titel" id="fs-titel">Laden</div>
+    <div class="balken"><i id="fs-balken"></i></div>
+  </div>
+
+  <canvas id="minikarte" width="230" height="230"></canvas>
+
+  <div id="meldungen"></div>
+
+  <!-- Seitliche Lade fuer Boerse, Hof, Haendler, Buch -->
+  <aside id="panel" class="zu">
+    <header>
+      <h2 id="panel-titel">–</h2>
+      <button id="panel-zu" title="Schließen (Esc)">✕</button>
+    </header>
+    <div id="panel-inhalt"></div>
+  </aside>
+
+  <!-- Touch-Steuerung, nur auf Geraeten ohne Tastatur -->
+  <div id="touch" class="aus">
+    <div class="tp links"><button data-taste="ArrowLeft">◀</button><button data-taste="ArrowRight">▶</button></div>
+    <div class="tp rechts"><button data-taste="ArrowDown">▼</button><button data-taste="ArrowUp">▲</button></div>
+  </div>
+
+  <!--
+    Titelbild. Liegt ueber allem und haelt die Uhr an, bis der Spieler startet.
+    Der Klick auf den Knopf ist zugleich die Eingabe, die der Browser sehen
+    will, bevor er Ton zulaesst (siehe sound.js).
+  -->
+  <div id="titel">
+    <div class="tafel">
+      <p class="ueber">Lohnfuhren auf dem Land</p>
+      <h1>Landfracht</h1>
+      <p class="unter">Ein Traktor, ein Anhänger, ein Auftragsbuch. Fahr das Getreide
+        zur Mühle, die Ballen zum Nachbarhof, die Maschine zum Händler — und schau,
+        dass am Abend mehr in der Kasse liegt als am Morgen.</p>
+
+      <div class="tasten">
+        <div><b>↑&nbsp;↓&nbsp;←&nbsp;→</b><span>Gas, bremsen, lenken</span></div>
+        <div><b>Leertaste</b><span>Handbremse</span></div>
+        <div><b>E</b><span>Tanken, Hof, Händler</span></div>
+        <div><b>B</b><span>Auftragsbörse</span></div>
+        <div><b>H</b><span>Hof: an- und abkoppeln</span></div>
+        <div><b>K</b><span>Händler</span></div>
+        <div><b>U</b><span>Buch: Zahlen und Ruf</span></div>
+        <div><b>M</b><span>Ton an und aus</span></div>
+      </div>
+
+      <p class="regel">Geladen und abgeladen wird von allein: mit dem Anhänger in
+        die markierte Zone fahren und anhalten. Enge Zonen wollen das Gespann gerade.</p>
+
+      <div class="knopfreihe">
+        <button id="t-los" class="haupt">Spiel starten</button>
+        <button id="t-neu" class="aus">Neu anfangen</button>
+      </div>
+
+      <p class="fuss">Läuft ohne Anmeldung im Browser. Der Spielstand liegt auf
+        deinem Gerät, nicht auf einem Server.</p>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/data.js"></script>
+<script src="js/world.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/jobs.js"></script>
+<script src="js/game.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

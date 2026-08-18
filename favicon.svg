@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Landfracht">
+  <rect width="64" height="64" rx="13" fill="#1b2016"/>
+  <!-- Aufbau: Kabine links, Haube rechts -->
+  <path d="M15 14 H39 V33 H60 V46 H15 Z" fill="#e8c14a"/>
+  <rect x="11" y="10" width="31" height="5" rx="2" fill="#e8c14a"/>
+  <rect x="42" y="17" width="4.5" height="17" rx="2" fill="#e8c14a"/>
+  <rect x="19" y="18" width="16" height="11" rx="1.5" fill="#1b2016"/>
+  <!-- Raeder: hinten gross, vorne klein -->
+  <circle cx="24" cy="45" r="16" fill="#23271d"/>
+  <circle cx="24" cy="45" r="7.5" fill="#e8c14a"/>
+  <circle cx="54" cy="51" r="10" fill="#23271d"/>
+  <circle cx="54" cy="51" r="4.5" fill="#e8c14a"/>
+</svg>
