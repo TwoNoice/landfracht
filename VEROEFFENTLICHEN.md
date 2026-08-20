@@ -10,6 +10,32 @@ Der Spielstand wandert nie zu einem Server, er bleibt im Browser des Spielers.
 
 ---
 
+## Stand: veroeffentlicht
+
+Das Spiel laeuft seit dem 20. August 2026 unter
+
+**https://twonoice.github.io/landfracht/**
+
+Der Weg dorthin war Weg A weiter unten, ohne eigene Domain. Das Repository
+liegt oeffentlich unter `github.com/TwoNoice/landfracht`, GitHub Pages zeigt
+den Zweig `main` aus dem Wurzelverzeichnis.
+
+Eine Aenderung geht seitdem so — nach dem `push` baut GitHub von allein neu,
+das dauert ein bis zwei Minuten:
+
+```bash
+git add -A
+git commit -m "was geaendert wurde"
+git push
+```
+
+Schritt 0 ist noch offen: die Speicherpunkte tragen weiterhin die
+Platzhalter-Adresse. Wer das aendern will, findet die Anleitung gleich
+darunter — sie greift allerdings nur noch fuer neue Speicherpunkte, die
+bereits hochgeladenen bleiben, wie sie sind.
+
+---
+
 ## Schritt 0 — die Unterschrift richtigstellen
 
 Das Verzeichnis ist bereits ein Git-Repository, der erste Speicherpunkt ist
