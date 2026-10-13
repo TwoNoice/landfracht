@@ -103,6 +103,56 @@ der nur Paletten abgibt, hat auf Stufe 1 nichts anzubieten.
 Ruf ist die eigentliche Fortschrittswährung. Er schaltet Auftragsarten frei,
 Geld schaltet das Gerät frei, mit dem man sie fahren kann.
 
+### Einweisung
+
+Auf dem Titelbild steht neben „Spiel starten" der Knopf **Einweisung
+(Tutorial)**: ein Rundgang durch jede Anzeige, jeden Bildschirm und jeden
+Handgriff, mit dem eigenen Betrieb statt einer Attrappe. Die jeweilige Stelle
+wird hervorgehoben, Börse, Hof, Händler, Buch und Karte gehen dabei wirklich
+auf. Weiter mit → oder Enter, zurück mit ←, Esc beendet ihn; am Ende geht es
+direkt ins Spiel. Im Buch lässt er sich jederzeit wieder starten. Die Uhr
+steht still, solange er läuft.
+
+### Jahreszeiten und Wetter
+
+Eine Jahreszeit dauert drei Spieltage, ein Jahr also zwölf. Jede hat ihre
+gefragten Waren — im Frühling Saatgut, Dünger und Gülle, im Sommer Getreide,
+Stroh und Heu, im Herbst Kartoffeln, Mais und Silage, im Winter Holz,
+Hackschnitzel und Futter. Die kommen öfter in die Börse und werden besser
+bezahlt; die Karte trägt dann die Marke „Frühlingsware" usw.
+
+Das Wetter wechselt alle zwei bis sechs Spielstunden, rechts oben steht es
+mit Vorhersage. Regen, Gewitter und Schnee kosten Halt und Tempo, vor allem
+auf Feldwegen und im Gelände; Nebel nimmt die Sicht. Die Börse rechnet ihre
+Zeitfenster mit dem Wetter, bei dem sie den Auftrag ausschreibt.
+
+### Ereignisse
+
+Knapp zweimal am Spieltag passiert etwas: ein Fest, bei dem ein Ort für
+einige Stunden 30 % mehr für Lieferungen zahlt, eine Werkstatt mit einem
+Drittel Rabatt, ein Sprung im Dieselpreis, eine eilige, gut bezahlte
+Sonderfahrt, im Sommer und Herbst eine Unwetterwarnung mit einer Stunde
+Aufschub für alle laufenden Aufträge. Laufende Ereignisse stehen rechts oben
+und im Buch. Dazu kommt die Reifenpanne: je verschlissener der Schlepper,
+desto öfter.
+
+### Ladungsschaden
+
+Ladung leidet, wenn man zu schnell in die Kurve geht, anstößt oder durchs
+Gelände rumpelt. Wie viel ein Anhänger in der Kurve verträgt, steht als
+`kurve` in `js/data.js`: die Mulde verzeiht fast alles, Ballenwagen und
+Plattform wollen langsam gefahren werden. Stroh, Heu, Saatgut, Dünger und
+Futtersäcke werden im Regen nass — außer unter der Abdeckplane vom Händler.
+Jedes Prozent Schaden kostet ein Prozent Lohn, ab zehn Prozent leidet auch
+der Ruf. Im Tacho steht, wie heil die Ladung noch ist.
+
+### Tagesziele
+
+Jeden Tag drei neue, etwa „2 Aufträge pünktlich liefern", „Eine Lieferung
+nach Mühle" oder „Eine Ladung ohne Schaden abliefern". Jedes bringt Geld und
+Ruf, alle drei zusammen 300 € und Ruf +20 obendrauf. Um Mitternacht
+verfallen sie.
+
 ## Aufbau der Dateien
 
 | Datei | Inhalt |
@@ -112,10 +162,12 @@ Geld schaltet das Gerät frei, mit dem man sie fahren kann.
 | `js/world.js` | Karte: Wege, Orte, Gebäude, Ladezonen, Untergrundabfrage |
 | `js/physics.js` | Fahrverhalten von Traktor und Anhänger |
 | `js/jobs.js` | Erzeugung und Bewertung der Aufträge |
+| `js/umwelt.js` | Jahreszeiten, Wetter, Ereignisse und Tagesziele |
 | `js/game.js` | Spielzustand, Wirtschaft, Laden/Abladen, Speichern |
 | `js/render.js` | Zeichnen von Gelände, Gespann, Minikarte und Kartenblatt |
 | `js/ui.js` | Kopfleiste, Meldungen, die fünf Bildschirme |
 | `js/entwickler.js` | Prüfstand: der Entwicklermodus (Strg+Alt+E) |
+| `js/anleitung.js` | Einweisung: der Rundgang durch alle Anzeigen und Bildschirme |
 | `js/sound.js` | Motor, Umgebung und Signale, alles zur Laufzeit erzeugt |
 | `js/main.js` | Titelbild, Eingaben, Spielschleife, Kontexthinweise |
 
@@ -176,6 +228,16 @@ gerufen; wie viele Aufträge man gleichzeitig führen darf, steht als
 **Diesel, Verschleiß, Reparatur, Kredit** — das Objekt `BAL` oben in
 `js/game.js`.
 
+**Ladungsschaden und Pannen** — `SCHADEN`, `EMPFINDLICH` und `PANNE_PRO_KM`
+in `js/game.js`. `querGrund` (3,4 m/s²) ist die Querbeschleunigung, die ein
+Anhänger mit `kurve` 1 verträgt; nachgemessen liegt sie bei Vollgas über das
+ganze Netz zu 99 % darunter.
+
+**Jahreszeiten, Wetter, Ereignisse, Tagesziele** — oben in `js/umwelt.js`:
+`SAISON_TAGE`, `saisonen` (gefragte Waren und Wetterwahrscheinlichkeiten),
+`wetterArten` (Tempo, Halt, Nässe je Wetter), `EREIGNIS_CHANCE` und die
+Ereignisse selbst, `zielArten` und der Bonus für alle drei Tagesziele.
+
 **Ton** — `js/sound.js`. Es gibt keine Klangdateien, alles entsteht im
 Browser. Der Motor ist dabei nicht als Klang gebaut, sondern als Anregung und
 Körper: eine vorberechnete Folge von Verbrennungsschlägen läuft durch feste
@@ -184,7 +246,7 @@ einzelnen Schläge, unter Last verschmelzen sie zum Knurren — das stellt sich
 von selbst ein. Dazu das Pfeifen des Laders und ein leises Getriebeheulen;
 Untergrund und Wind aus gefiltertem Rauschen.
 
-Unterhalb von 120 Hz liegt fast nichts. Die Drehzahl hört das Ohr an der
+Unterhalb von 150 Hz liegt fast nichts. Die Drehzahl hört das Ohr an der
 Wiederholrate der Schläge, nicht an einem Grundton — deshalb braucht es den
 Bass nicht, der vorher alles zugedeckt hat.
 
@@ -196,8 +258,10 @@ fremde Aufnahme im Spiel. Der Lader hängt am Gas und braucht rund zweieinhalb
 Sekunden, bis er oben ist, deshalb pfeift es beim Anfahren unter Last hoch.
 
 Die Drehzahl läuft über ein gedachtes Getriebe mit vier Gängen, deshalb hört
-man das Hochschalten. Die Lautstärke steht im Buch und liegt getrennt vom
-Spielstand unter `landfracht_ton` im `localStorage`.
+man das Hochschalten. Unter Gas wird der Motor lauter und heller, beim Rollen
+und im Leerlauf tritt er zurück. Im Buch gibt es zwei Regler: die
+Gesamtlautstärke und den Motor allein. Beides liegt getrennt vom Spielstand
+unter `landfracht_ton` im `localStorage`.
 
 Geschraubt wird am Objekt `KLANG` oben in `js/sound.js` — Resonanzen,
 Brenndauer, Nageln, Gesamtpegel. Am Ohr geht das bequemer mit
@@ -305,7 +369,7 @@ Ohne `js/entwickler.js` läuft das Spiel unverändert weiter.
 
 ## Stand der Umsetzung
 
-Fertig sind Stufe 1 und Stufe 2 aus der Vorgabe:
+Fertig sind Stufe 1 bis 3 aus der Vorgabe:
 
 * Karte mit elf Orten, 4,48 km Landstraße und 2,78 km Feldweg in einem
   vermaschten Netz aus 36 Routen auf 720 × 720 Metern, Kamera folgt dem
@@ -318,9 +382,14 @@ Fertig sind Stufe 1 und Stufe 2 aus der Vorgabe:
 * Händler für Traktoren, Anhänger und Ausrüstung, Verkauf mit Zustandsabschlag
 * Diesel mit Wochenpreis, Verschleiß, Reparatur, Strafen, Kredit
 * Speichern im Browser, Statistik, Buch
-* Ton: Motor mit Last und Drehzahl, Untergrund, Wind, Vögel, kurze Signale
+* Ton: Motor mit Last und Drehzahl, Untergrund, Wind, Vögel, Regen, Donner, kurze Signale
+* Vier Jahreszeiten mit eigener Nachfrage, Wetter mit Vorhersage und Wirkung
+  auf Halt, Tempo und Ladung, im Bild als Regen, Schnee, Nebel und Gewitter
+* Ereignisse: Feste, Werkstattrabatt, Dieselsprünge, Sonderfahrten,
+  Unwetter, Reifenpannen
+* Ladungsschaden durch Kurven, Anstoßen, Gelände und Nässe, Abdeckplane
+* Drei Tagesziele je Tag mit Bonus
+* Einweisung (Tutorial) vom Titelbild aus
 
-Noch offen sind Stufe 3 (Wetter, Saisonen, Ereignisse, Ladungsschaden,
-Tagesziele) und Stufe 4 (angestellte Fahrer, Halle, zweite Region,
-Stammkunden). Die Haken dafür sind angelegt: `kurve` je Anhänger für den
-Ladungsschaden, `querBeschl` im Gespann, `pruefeWoche` für den Wochenrhythmus.
+Noch offen ist Stufe 4 (angestellte Fahrer, Halle, zweite Region,
+Stammkunden).

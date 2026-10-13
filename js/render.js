@@ -328,6 +328,8 @@ TG.zeichnen = (function () {
     if (TG.entwickler && TG.entwickler.hat('linien')) pruefLinien(s, spiel);
     ctx.restore();
 
+    if (spiel.state && TG.umwelt) wetterZeichnen(dt, spiel.state);
+
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, breite, hoehe);
 
@@ -894,6 +896,123 @@ TG.zeichnen = (function () {
       kreis(t.x, t.y, t.r);
     }
   }
+
+  /* ---------------- Wetter und Jahreszeit ----------------
+   *
+   * Liegt im Schirmraum ueber der fertigen Welt, unter Vignette, Ortsnamen und
+   * Wegweiser -- die sollen auch im dicksten Nebel lesbar bleiben. Die Staerken
+   * gleiten mit dt, damit ein Wetterwechsel nicht von einem Bild aufs andere
+   * umschlaegt; bei offener Lade (dt = 0) steht alles still wie Staub und
+   * Rauch.
+   *
+   * Die Jahreszeit ist nur ein Farbschleier. Die Kacheln der Felder fuer jede
+   * Jahreszeit neu zu bauen haette das Vierfache an Texturen gekostet, und der
+   * Schleier liest sich auf den ersten Blick genauso. */
+  var wz = { regen: 0, schnee: 0, nebel: 0, dunkel: 0, blitz: 0, blitze: 0 };
+  var tropfen = [], flocken = [];
+
+  var WETTER_ZIEL = {
+    sonne:    { regen: 0,   schnee: 0, nebel: 0, dunkel: 0 },
+    wolken:   { regen: 0,   schnee: 0, nebel: 0, dunkel: 0.10 },
+    regen:    { regen: 0.6, schnee: 0, nebel: 0.1, dunkel: 0.18 },
+    gewitter: { regen: 1,   schnee: 0, nebel: 0.1, dunkel: 0.32 },
+    nebel:    { regen: 0,   schnee: 0, nebel: 1, dunkel: 0.04 },
+    schnee:   { regen: 0,   schnee: 1, nebel: 0.15, dunkel: 0.06 }
+  };
+  var SAISON_SCHLEIER = {
+    fruehling: 'rgba(150,205,95,.05)',
+    sommer:    'rgba(255,214,120,.07)',
+    herbst:    'rgba(196,112,42,.13)',
+    winter:    'rgba(232,240,250,.26)'
+  };
+
+  function wetterZeichnen(dt, state) {
+    var art = state.wetter ? state.wetter.art : 'sonne';
+    var ziel = WETTER_ZIEL[art] || WETTER_ZIEL.sonne;
+    // Erstes Bild: gleich dort anfangen, wo das Wetter steht, statt aus dem
+    // Sonnenschein hineinzublenden.
+    var k = wz.gesetzt ? Math.min(1, dt / 4) : 1;
+    wz.gesetzt = true;
+    ['regen', 'schnee', 'nebel', 'dunkel'].forEach(function (n) { wz[n] += (ziel[n] - wz[n]) * k; });
+
+    var sz = TG.umwelt.saison(state);
+    ctx.fillStyle = SAISON_SCHLEIER[sz.id] || 'rgba(0,0,0,0)';
+    ctx.fillRect(0, 0, breite, hoehe);
+
+    if (wz.dunkel > 0.005) {
+      ctx.fillStyle = 'rgba(24,31,40,' + wz.dunkel.toFixed(3) + ')';
+      ctx.fillRect(0, 0, breite, hoehe);
+    }
+
+    if (wz.regen > 0.02) regenZeichnen(dt);
+    if (wz.schnee > 0.02) schneeZeichnen(dt);
+
+    if (wz.nebel > 0.02) {
+      // Gleichmaessiger Schleier und zum Rand hin dichter: in der Mitte, wo
+      // das Gespann steht, sieht man noch etwas, die naechste Kurve nicht.
+      ctx.fillStyle = 'rgba(214,220,214,' + (0.22 * wz.nebel).toFixed(3) + ')';
+      ctx.fillRect(0, 0, breite, hoehe);
+      var r = Math.max(breite, hoehe);
+      var nv = ctx.createRadialGradient(breite / 2, hoehe / 2, r * 0.12, breite / 2, hoehe / 2, r * 0.62);
+      nv.addColorStop(0, 'rgba(214,220,214,0)');
+      nv.addColorStop(1, 'rgba(214,220,214,' + (0.72 * wz.nebel).toFixed(3) + ')');
+      ctx.fillStyle = nv;
+      ctx.fillRect(0, 0, breite, hoehe);
+    }
+
+    // Blitz: selten, kurz, und nur bei echtem Gewitter.
+    if (art === 'gewitter' && dt > 0 && Math.random() < dt * 0.06) { wz.blitz = 1; wz.blitze++; }
+    if (wz.blitz > 0.01) {
+      ctx.fillStyle = 'rgba(235,240,255,' + (0.45 * wz.blitz).toFixed(3) + ')';
+      ctx.fillRect(0, 0, breite, hoehe);
+      wz.blitz *= Math.exp(-dt * 7);
+    }
+  }
+
+  function regenZeichnen(dt) {
+    var soll = Math.round(260 * wz.regen);
+    while (tropfen.length < soll) {
+      tropfen.push({ x: Math.random() * breite, y: Math.random() * hoehe,
+                     l: 10 + Math.random() * 12, v: 520 + Math.random() * 260 });
+    }
+    if (tropfen.length > soll) tropfen.length = soll;
+    ctx.strokeStyle = 'rgba(196,210,224,' + (0.32 + 0.12 * wz.regen).toFixed(3) + ')';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var i = 0; i < tropfen.length; i++) {
+      var t = tropfen[i];
+      t.y += t.v * dt; t.x -= t.v * 0.18 * dt;
+      if (t.y > hoehe + 20) { t.y = -20; t.x = Math.random() * (breite + 60); }
+      if (t.x < -20) t.x += breite + 40;
+      ctx.moveTo(t.x, t.y);
+      ctx.lineTo(t.x + t.l * 0.18, t.y - t.l);
+    }
+    ctx.stroke();
+  }
+
+  function schneeZeichnen(dt) {
+    var soll = Math.round(220 * wz.schnee);
+    while (flocken.length < soll) {
+      flocken.push({ x: Math.random() * breite, y: Math.random() * hoehe,
+                     r: 0.8 + Math.random() * 1.8, v: 30 + Math.random() * 40, p: Math.random() * 6.3 });
+    }
+    if (flocken.length > soll) flocken.length = soll;
+    ctx.fillStyle = 'rgba(250,252,255,' + (0.85 * wz.schnee).toFixed(3) + ')';
+    ctx.beginPath();
+    for (var i = 0; i < flocken.length; i++) {
+      var f = flocken[i];
+      f.p += dt * 1.3;
+      f.y += f.v * dt; f.x += Math.sin(f.p) * 14 * dt - 8 * dt;
+      if (f.y > hoehe + 5) { f.y = -5; f.x = Math.random() * breite; }
+      if (f.x < -5) f.x += breite + 10;
+      ctx.moveTo(f.x + f.r, f.y);
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+
+  /** Wie viele Blitze bisher -- main.js reicht neue an den Ton weiter. */
+  function blitze() { return wz.blitze; }
 
   /* ---------------- Prüfstand: das Gerüst hinter dem Bild ----------------
    *
@@ -1585,6 +1704,6 @@ TG.zeichnen = (function () {
   return {
     start: start, bild: bild, minikarte: minikarte, karte: karte, zoom: zoom,
     kamera: kamera, welt2schirm: welt2schirm, schirm2welt: schirm2welt,
-    mausZiel: mausZiel
+    mausZiel: mausZiel, blitze: blitze
   };
 })();

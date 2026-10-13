@@ -84,6 +84,8 @@ TG.auftraege = (function () {
    *   art  — nur diese Auftragsart
    *   von  — muss an diesem Ort losgehen. Damit entstehen die
    *          Anschlussfuhren, die am Ziel der letzten Lieferung ausliegen.
+   *   nach — muss an diesem Ort enden. Dafuer gibt es die Feste aus
+   *          umwelt.js: wer dort feiert, soll auch beliefert werden koennen.
    */
   function erzeugen(state, wunsch) {
     wunsch = wunsch || {};
@@ -106,13 +108,24 @@ TG.auftraege = (function () {
       });
       if (!kandidaten.length) return null;
       ware = U.waehle(kandidaten);
+    } else if (wunsch.nach) {
+      var ziel = W.ort(wunsch.nach);
+      if (!ziel) return null;
+      var annehmbar = ziel.nimmt.filter(function (w) {
+        var sp = D.waren[w];
+        if (!sp || moeglich.indexOf(sp.art) < 0) return false;
+        return quellen(w).some(function (q) { return q.id !== ziel.id; });
+      });
+      if (!annehmbar.length) return null;
+      ware = saisonWahl(state, annehmbar);
+      von = U.waehle(quellen(ware).filter(function (q) { return q.id !== ziel.id; }));
     } else {
       var gewaehlt = wunsch.art && moeglich.indexOf(wunsch.art) >= 0 ? wunsch.art : U.waehle(moeglich);
 
-      // Ware dieser Art waehlen
+      // Ware dieser Art waehlen -- was die Jahreszeit verlangt, kommt oefter.
       var warenIds = [];
       for (var w in D.waren) if (D.waren[w].art === gewaehlt) warenIds.push(w);
-      ware = U.waehle(warenIds);
+      ware = saisonWahl(state, warenIds);
       von = U.waehle(quellen(ware));
       if (!von) return null;
     }
@@ -121,6 +134,7 @@ TG.auftraege = (function () {
     var art = wSpec.art;
 
     var moeglichZiele = senken(ware).filter(function (o) { return o.id !== von.id; });
+    if (wunsch.nach) moeglichZiele = moeglichZiele.filter(function (o) { return o.id === wunsch.nach; });
     if (!moeglichZiele.length) return null;
     var nach = U.waehle(moeglichZiele);
 
@@ -130,7 +144,7 @@ TG.auftraege = (function () {
     // Auf Stufe 1 bleiben die Wege kurz. Nicht aber bei einer Anschlussfuhr:
     // wer schon am anderen Ende der Karte steht, soll dort auch etwas
     // aufladen duerfen, statt leer zurueckzufahren.
-    if (stufe === 1 && meter > (wunsch.von ? 880 : 640)) return null;
+    if (stufe === 1 && meter > (wunsch.von || wunsch.nach ? 880 : 640)) return null;
 
     // ---- Menge ----
     // Die Menge richtet sich nach dem, was der Spieler tatsächlich fassen
@@ -153,9 +167,18 @@ TG.auftraege = (function () {
     var streuung = U.zufall(0.85, 1.15);
     var guete = streuung * (schlecht ? U.zufall(0.58, 0.78) : 1);
 
+    // Jahreszeit und Feste. Getrennt von der guete, damit "gut bezahlt" weiter
+    // nur sagt, ob der Kunde knausert -- und nicht, ob gerade Ernte ist.
+    var saisonF = TG.umwelt ? TG.umwelt.nachfrage(state, ware) : 1;
+    var festF = TG.umwelt ? TG.umwelt.zielFaktor(state, nach.id) : 1;
+    grund *= saisonF * festF;
+
     // ---- Zeitfenster ----
+    // Bei Regen oder Schnee rechnet die Boerse mit dem Wetter, das gerade ist.
+    // Schlaegt es waehrend der Fahrt um, ist das Pech -- oder Glueck.
+    var plan = PLANTEMPO * (TG.umwelt ? TG.umwelt.planFaktor(state) : 1);
     var strecke = meter * (2 * fahrten - 1) + 170;          // Anfahrt grob mitgerechnet
-    var netto = fahrzeit(strecke, PLANTEMPO) + fahrten * 2 * 8;  // je Ladevorgang etwas Zeit
+    var netto = fahrzeit(strecke, plan) + fahrten * 2 * 8;  // je Ladevorgang etwas Zeit
     var luft = fahrten > 1 ? U.zufall(1.20, 1.55) : U.zufall(1.30, 2.10);
     if (schlecht) luft += 0.35;                             // magere Bezahlung, wenigstens Zeit
     var fenster = Math.round(netto * luft / 15) * 15;
@@ -182,12 +205,27 @@ TG.auftraege = (function () {
       guete: Math.round(guete * 100) / 100,
       schlecht: schlecht,
       eilig: luft < 1.55,
+      saison: Math.round(saisonF * 100) / 100,
+      fest: festF > 1,
       gueltigBis: state.zeit + U.zufallGanz(180, 620),
       // Werte nach der Annahme
       status: 'angebot',
       faelligUm: 0,
       geliefert: 0
     };
+  }
+
+  /** Ware waehlen, gewichtet mit der Nachfrage der Jahreszeit. */
+  function saisonWahl(state, liste) {
+    if (!TG.umwelt || liste.length < 2) return U.waehle(liste);
+    var summe = 0, gew = liste.map(function (w) {
+      var g = Math.pow(TG.umwelt.nachfrage(state, w), 3);   // 1,35 wird gut zweieinhalbmal so oft
+      summe += g;
+      return g;
+    });
+    var r = Math.random() * summe;
+    for (var i = 0; i < liste.length; i++) { r -= gew[i]; if (r <= 0) return liste[i]; }
+    return liste[liste.length - 1];
   }
 
   /** Wie oft liegt derselbe Weg mit derselben Ware schon aus? */

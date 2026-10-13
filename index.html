@@ -78,6 +78,13 @@
     <div class="ladung" id="t-ladung">leer</div>
   </div>
 
+  <!-- Wetter, Jahreszeit, laufende Ereignisse und Tagesziele. Reine Anzeige. -->
+  <div id="lage">
+    <div class="lage-wetter" id="lage-wetter"></div>
+    <div class="lage-ereignisse" id="lage-ereignisse"></div>
+    <div class="lage-ziele" id="lage-ziele"></div>
+  </div>
+
   <!-- Zahlenfeld des Pruefstands -->
   <div id="diagnose" class="aus"></div>
 
@@ -153,6 +160,7 @@
 
       <div class="knopfreihe">
         <button id="t-los" class="haupt">Spiel starten</button>
+        <button id="t-einweisung" type="button" title="Einmal durch alle Anzeigen, Menüs und Funktionen">Einweisung (Tutorial)</button>
         <button id="t-neu" class="aus">Neu anfangen</button>
       </div>
 
@@ -168,10 +176,12 @@
 <script src="js/world.js"></script>
 <script src="js/physics.js"></script>
 <script src="js/jobs.js"></script>
+<script src="js/umwelt.js"></script>
 <script src="js/game.js"></script>
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/entwickler.js"></script>
+<script src="js/anleitung.js"></script>
 <script src="js/sound.js"></script>
 <script src="js/main.js"></script>
 </body>

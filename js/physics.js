@@ -51,10 +51,13 @@ TG.Gespann = (function () {
    *           lenkZiel ist der stufenlose Sollwert der Maussteuerung
    *           (-1 ganz links .. 1 ganz rechts) und ersetzt links/rechts.
    * technik : {ps, achsstand, vmaxKmh, masseGesamt, masseTraktor, zustand,
-   *            anhaengerB, halt, untergrund}
+   *            anhaengerB, halt, untergrund, griff}
+   *            griff ist der Wetterfaktor auf den Halt des Untergrunds.
    */
   Gespann.prototype.schritt = function (dt, eingabe, technik) {
     var u = TG.welt.untergruende[technik.untergrund] || TG.welt.untergruende.gelaende;
+    // Halt des Untergrunds, gemindert durch Naesse und Schnee (umwelt.js).
+    var halt = u.halt * (technik.griff || 1);
 
     // ---- Lenkung -------------------------------------------------
     // Bei hohem Tempo wird der Einschlag begrenzt. Sonst wirft es das
@@ -118,13 +121,13 @@ TG.Gespann = (function () {
     var masseAnh = Math.max(0, technik.masseGesamt - technik.masseTraktor);
     var zugMasse = technik.masseTraktor + masseAnh * 0.55;
     var aAntrieb = (technik.ps * 0.20 * zustFaktor) / Math.max(1, zugMasse);
-    aAntrieb *= u.halt;
+    aAntrieb *= halt;
 
     // Bremsen: der Traktor bremst, der Anhaenger schiebt. Etwas kraeftiger als
     // frueher (4,2), sonst wird der Bremsweg aus Reisegeschwindigkeit laenger,
     // als die Vorausschau der Kamera reicht.
     var anteilTraktor = technik.masseTraktor / Math.max(0.1, technik.masseGesamt);
-    var aBremse = 5.0 * u.halt * (0.5 + 0.5 * anteilTraktor) * (0.7 + 0.3 * zust);
+    var aBremse = 5.0 * halt * (0.5 + 0.5 * anteilTraktor) * (0.7 + 0.3 * zust);
 
     // Rollwiderstand
     var aRoll = (0.42 + 0.0038 * tempo * tempo) * u.roll;
@@ -159,7 +162,7 @@ TG.Gespann = (function () {
     // ---- Kinematik Traktor --------------------------------------
     var omega = (this.v / technik.achsstand) * Math.tan(this.lenk);
     // Bei wenig Grip rutscht die Front, die Drehrate faellt ab
-    omega *= U.clamp(0.55 + 0.45 * u.halt, 0.4, 1);
+    omega *= U.clamp(0.55 + 0.45 * halt, 0.4, 1);
 
     var altX = this.x, altY = this.y, altH = this.h, altTh = this.th;
 

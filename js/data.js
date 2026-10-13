@@ -160,7 +160,12 @@ TG.data = (function () {
       wirkung: { alle: { verbrauch: 1.05 }, halt: 1.14, masse: 0.9 } },
     { id: 'grosstank', name: 'Größerer Tank', preis: 2600, gruppe: 'anbau',
       text: 'Ein Drittel mehr Diesel an Bord. Seltener zur Tankstelle.',
-      wirkung: { tank: 1.34 } }
+      wirkung: { tank: 1.34 } },
+    // Wirkt nicht aufs Fahren, sondern auf den Ladungsschaden (game.js):
+    // Stroh, Heu und Sackware bleiben im Regen trocken.
+    { id: 'plane', name: 'Abdeckplane', preis: 1800, gruppe: 'plane',
+      text: 'Hält Stroh, Heu, Saatgut, Dünger und Futtersäcke im Regen trocken.',
+      wirkung: { plane: true } }
   ];
 
   /* ---------------------------------------------------------------

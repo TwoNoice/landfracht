@@ -11,9 +11,8 @@ tuning knobs. The original design brief is not in the repository and is not
 recoverable — everything that survived from it is written down here or in
 `README.md`, so do not go looking for it.
 
-Stage 1 and 2 of the planned four are implemented. Stage 3 (weather, seasons,
-events, cargo damage, daily goals) and stage 4 (hired drivers, depot, second
-region, regular customers) are not.
+Stages 1 to 3 of the planned four are implemented. Stage 4 (hired drivers,
+depot, second region, regular customers) is not.
 
 ## Running it
 
@@ -205,10 +204,12 @@ scripts, not ES modules** — deliberately, so the game runs from `file://`
 without a server. Do not convert them to modules.
 
 `index.html` fixes the load order: `util → data → world → physics → jobs →
-game → render → ui → entwickler → sound → main`. Cross-references that run at
-load time must respect it. `jobs.js` reads `TG.spiel.ZEITFAKTOR` even though
-`game.js` loads later; that is safe only because the read happens inside a
-function.
+umwelt → game → render → ui → entwickler → anleitung → sound → main`.
+Cross-references that run at load time must respect it. `jobs.js` reads
+`TG.spiel.ZEITFAKTOR` even though `game.js` loads later; that is safe only
+because the read happens inside a function. `umwelt.js` has to come before
+`game.js`, because `game.js` hooks its callbacks in at load time
+(`UW.anmelden`).
 
 ### Where the responsibilities sit
 
@@ -219,12 +220,19 @@ function.
   purely decorative `beiwerk()` — copses, ponds, boulders.
 - `jobs.js` composes jobs *out of* that world data. Add a location with
   `gibt`/`nimmt` entries and routes appear on the job board automatically —
-  nothing else needs editing. `erzeugen()` takes an optional `{art, von}`
+  nothing else needs editing. `erzeugen()` takes an optional `{art, von, nach}`
   wish; with `von` set it works backwards from the location's `gibt` list
-  instead of picking a cargo first. That is what `anschluss()` uses.
+  instead of picking a cargo first. That is what `anschluss()` uses. `nach`
+  does the same from the `nimmt` list and serves the *Fest* events.
 - `game.js` is the state machine: money, reputation, fuel, wear, loading,
   settlement, saving. It owns the single `state` object and the one `Gespann`
   instance.
+- `umwelt.js` is everything that changes over the day and the year without
+  the player causing it: seasons, weather, events and daily goals. Like
+  `jobs.js` it takes `state` as a parameter and holds none of its own. It
+  talks back through two callbacks `game.js` registers with `anmelden()` —
+  `melden` and `belohnen`; the reward goes through `game.js` because only
+  there is the rank-up handled.
 - `physics.js` is stateless with respect to the game; it receives everything
   it needs through a `technik` object that `game.js` assembles.
 - `ui.js` and `render.js` only read state and call `game.js` actions.
@@ -499,9 +507,12 @@ too — the engine is described by its layout and displacement, never named.
 It is built as **excitation and body**, not as a waveform, and that split is
 the whole design:
 
-- The excitation is one pre-rendered buffer (`anregungsPuffer`) holding 72
-  combustion events — a pressure hump with a rough edge per firing, valve
-  ticks between them, a fixed per-cylinder scatter in timing and force.
+- The excitation is one pre-rendered buffer (`anregungsPuffer`) holding 360
+  combustion events, six seconds of loop — a pressure hump with a rough edge
+  per firing, valve ticks between them, a fixed per-cylinder scatter in timing
+  and force, and on top a free per-firing scatter in force (`STREU_ZYKLUS`).
+  The loop used to be 72 firings, 1.2 s, and the ear learned that pattern
+  within a minute; that was half of why the engine sounded monotonous.
 - The body is a parallel bank of band-pass resonators outside the buffer,
   fixed in frequency, that ring after each blow.
 
@@ -523,8 +534,8 @@ precisely the wummern. Filtering it removed the pitch along with the mud.
 
 An impulse train has no such conflict. The ear takes the rpm from the
 repetition rate of the blows (residue pitch), not from energy at 38 Hz, so
-`HOCHPASS` can sit at 120 Hz and the engine still reads as a slow-turning
-diesel. Measured on the current build: 0.1–1.1 % of the engine's energy is
+`HOCHPASS` can sit at 120 Hz (150 Hz since the rework below) and the engine
+still reads as a slow-turning diesel. Measured on the current build: 0.1–1.1 % of the engine's energy is
 below 90 Hz, and an autocorrelation of the output still locks onto the firing
 frequency to within 0.3 Hz. The version before this had 86 % below 90 Hz.
 
@@ -541,14 +552,51 @@ Two consequences that are easy to get wrong:
 - `STREU_KRAFT` must stay small. Widening the per-cylinder force scatter makes
   the autocorrelation lock onto the crankshaft revolution instead of the
   firing, one third of the rate, and the engine reads as slower than it is.
-  0.07 measured clean; 0.16 did not.
+  0.07 measured clean; 0.16 did not; it is now 0.05. The per-*firing*
+  scatter `STREU_ZYKLUS` (0.14) does not have that problem: it never repeats,
+  so there is nothing for the autocorrelation to lock onto.
+
+**The second rework: from "too loud and monotonous" to tolerable for long.**
+The player found the build above tiring to listen to. Measured against it,
+three things caused that, and each has its fix:
+
+- Energy where the ear tires fastest: 7–43 % of it sat between 1 and 3 kHz
+  and 6–13 % above 3 kHz, from the valve ticks and three narrow resonances at
+  1.5 / 2.7 / 4.2 kHz. Now 4–8 % and about 1 %; the spectral centroid moved
+  from 780–1500 Hz down to about 400 Hz.
+- Narrow resonances (Q 5–7) ring after every blow and lay a fixed tone under
+  the engine that no rpm changes. The Qs are now 2–3.6.
+- No dynamics. Idle was only 4 dB below full load. Gain and a new low-pass
+  over the whole engine (`TIEFPASS_ZU` / `TIEFPASS_AUF`) now follow a smoothed
+  throttle value `last`, passed to `setzen()` as a fifth argument the sample
+  build ignores. Idle is about 10 dB quieter than before, full load about
+  4 dB, and the two are 11 dB apart. A short drop in load when shifting up
+  under throttle (`schaltPause`) and a small governor wobble in rpm do the
+  rest.
+
+Do not make the combustion pulse much rounder than `BRENN_ANTEIL` 0.26 /
+`BERG` 0.45. That was tried (0.34 / 0.78): with nothing above 1 kHz in the
+blow itself no filter can open the sound under load, and the centroid fell to
+190 Hz — no more stinging, but droning instead.
+
+These measurements came from rendering the engine in an
+`OfflineAudioContext` (patch `window.AudioContext` to return one whose
+`state` reads `'running'`, `eval` a fresh copy of `sound.js`, step
+`schritt()`, render, FFT) — a live context stays suspended without a real
+user gesture, so a console session cannot measure it any other way. The
+numbers say where the energy is; whether it is pleasant is still a listening
+decision.
 
 Boost is its own state variable (`ladedruck`), keyed to throttle rather than
-revs, rising over ~2.5 s and falling in ~1 s. It drives a high-Q band-pass on
-noise (a pure oscillator sounds like a kettle) and adds a little engine gain,
+revs, rising over ~2.5 s and falling in ~1 s. It drives a band-pass on
+noise (a pure oscillator sounds like a kettle; it sweeps 1.5–3.5 kHz, no
+longer up to 7 kHz) and adds a little engine gain,
 so the rig audibly leans into a load. It must stay clamped to 0..1: `dreh`
-itself exceeds 1 under load. A quiet triangle whine keyed to road speed (not
-revs) makes it read as a moving vehicle. Three constraints worth knowing:
+itself exceeds 1 under load. A quiet sine whine keyed to road speed (not
+revs) makes it read as a moving vehicle; it was a triangle, whose overtones
+stood above everything as a thin whistle. Engine, boost and whine run through
+their own gain `motorBus`, which the second slider in the Buch panel sets, so
+the engine can be turned down without silencing wind and birds. Three constraints worth knowing:
 
 - The `AudioContext` must be built inside a user gesture, otherwise Chrome
   keeps it suspended. `ton.start()` only registers the wake-up listeners.
@@ -559,7 +607,8 @@ revs) makes it read as a moving vehicle. Three constraints worth knowing:
   buffer so the loop seam does not click.
 - `KLANG` and `koerperNeu()` are exported for `werkzeug/klang.html` only. The
   game never touches either.
-- Volume and on/off live under their own localStorage key `landfracht_ton`,
+- Volume, engine volume and on/off live under their own localStorage key
+  `landfracht_ton`,
   not in the save. Putting them in `state` would mean bumping the save
   version, and `laden()` discards rather than migrates.
 
@@ -688,7 +737,110 @@ be aligned with the zone's long axis within ~±29°.
 
 Progress is reported to the UI through the small event bus
 (`spiel.bei(name, fn)` / `melden`). Events in use: `meldung`, `vorgang`,
-`geladen`, `stufe`, `anlasser`, `motor`.
+`geladen`, `stufe`, `anlasser`, `motor`, `ziel`.
+
+### Stage 3: seasons, weather, events, daily goals
+
+All of it lives in `umwelt.js` and is stored in `state` as *new fields only*
+(`wetter`, `ereignisse`, `ziele`, `stunde`, `saison`). `einrichten()` fills
+whatever an older save lacks, from both `neu()` and `laden()`, so the save
+format stayed at `v: 1`. Keep it that way: add fields, never rename them.
+
+`takt(state)` runs after every advance of the clock — from `schritt()` and
+from `zeitVoran()`. It catches up large jumps (repair, jerrycan, Prüfstand)
+but rolls at most one event for them; four hours in the workshop should not
+dump four events at once.
+
+- **Seasons** last `SAISON_TAGE` = 3 game days, so a year is 12 days. A week
+  per season was the obvious choice and would have meant four real hours per
+  season — most players would never see autumn. Each season carries
+  `nachfrage`, a pay factor per good that `jobs.erzeugen()` also uses,
+  cubed, as the weight when it picks a good (`saisonWahl()`). It is stored on
+  the job as `saison`, *separately* from `guete`, so "gut bezahlt" keeps
+  meaning the customer is generous and not that it is harvest time. The
+  render shows the season as a single colour veil (`SAISON_SCHLEIER`), not
+  as per-season field tiles — four times the textures for something that
+  reads the same at a glance.
+- **Weather** changes every 2–6 game hours with a forecast (`naechste`) and a
+  bias towards staying as it is. Each kind carries `tempo` per surface (into
+  `vmaxKmh`), `griff` (a new `technik.griff` that `physics.js` multiplies
+  onto the surface's `halt` — acceleration, braking *and* how well the front
+  wheels bite), `nass` (cargo damage) and `plan` (multiplies `PLANTEMPO` for
+  jobs offered *while* that weather lasts). The drive test still runs in
+  sunshine; in snow and in a thunderstorm the rig is slower and its worst
+  excursion actually drops (1.69 / 1.78 m against 2.11 m).
+- **Events** are rolled once per game hour at `EREIGNIS_CHANCE` = 0.08, a
+  little under two a day. 0.14 produced three a day and the message column
+  never went quiet. A *Fest* raises pay for deliveries to one place by 30 %
+  and spawns two jobs there (`erzeugen()` learned a `nach` wish for it);
+  *Werkstatt* cuts repair cost by a third; *Diesel* moves the price within the
+  weekly bounds; *Sonderfahrt* is one single-trip job at ×1.45 pay with a
+  tight window (at ×1.6 and allowing two-trip jobs it reached 2 100 €, six
+  times a normal haul); *Unwetter* (summer and autumn only) forces a storm and
+  gives every running job an hour's grace. The tyre puncture is not a clock
+  event: it hangs off metres driven and condition and lives in `game.js`.
+- **Daily goals**: three per day, rerolled at midnight. Progress arrives
+  through `zielMelden(state, art, daten)` with `'meter'`, `'abgeladen'` and
+  `'fertig'`. `'abgeladen'` is reported *after* the settlement so the goal's
+  message does not appear before the delivery's.
+
+Weather messages carry no `art`, deliberately: `main.js` turns every `art`
+into a signal tone, and the weather changes too often for that.
+
+### Cargo damage
+
+`game.ladungSchritt()` adds to `state.ladung.schaden` (0..0.8) from four
+sources: lateral acceleration above `SCHADEN.querGrund × trailer.kurve`,
+collisions, rumbling across open ground faster than 3 m/s, and rain on the
+goods in `NASS_WAREN` unless the `plane` equipment is owned. Each trailer
+type has a sensitivity in `EMPFINDLICH`. On delivery the damage is weighted by
+quantity onto the job (`j.schaden`), and settlement cuts the pay in the same
+proportion; above 10 % it also halves the reputation gain at twice the rate.
+
+`querGrund` = 3.4 comes from measurement, not taste: over the whole network
+at full throttle the lateral acceleration is 1.0 m/s² median, 2.2 at the
+90th and 3.7 at the 99th percentile. With it, measured with the same bot as
+the drive test, a full skip loses 0.4 % per 400 m flat out, a bale wagon
+20 % flat out and about 1 % at 22 km/h, a pallet trailer 7 %. `querBeschl`
+is smoothed over 0.25 s first — single frames reach 9 m/s² when the trailer
+hits its articulation stop, and that is not cornering.
+
+Messages fire only when the damage crosses 5, 15, 30 and 50 %; the
+`hinweis` line and the red load in the tacho show it continuously while it is
+happening (`ladungsZustand().grund`).
+
+The puncture (`PANNE_PRO_KM` = 0.02, ×4 when the tractor is spent) stops the
+rig dead and costs money and 40 minutes. The documented drive test does not
+reset the condition, so over its seven kilometres a puncture can stop the rig
+once; it simply pulls away again and the result is unaffected.
+
+### The Einweisung (tutorial)
+
+`js/anleitung.js` is a guided tour over the paused game, started from the
+title screen (`#t-einweisung`) or from the Buch. Each step highlights an
+element with a frame whose huge `box-shadow` darkens everything else, opens
+real panels where needed and explains them in a card placed beside the
+target. Things that are easy to break:
+
+- A transparent blocking layer sits over everything but the card. The tour
+  shows, it does not operate — a click on "Annehmen" during it would start a
+  job's clock.
+- `main.js` treats `laeuft()` like an open panel (`pausiert`) and ignores
+  keys while it runs; the tour takes its keys in the *capture* phase and
+  stops them. `titelTaste` checks it too, or Enter on the tour would also
+  start the game.
+- A panel that has just been opened is still sliding in. The first
+  measurement waits 260 ms, then `nachfuehren()` re-measures every frame for
+  800 ms and `transitionend` on `#panel` once more; one fixed delay put the
+  frame beside the button on a slow machine.
+- From the title screen the title is hidden (`aus`) and `titel-an` removed so
+  the HUD shows, and both are restored on Esc. "Spiel starten" on the last
+  step calls `losfahren()` instead.
+
+The steps are plain data at the top of the file. A step's `ziel` is a
+selector, a list of them (the hull around all), or a function returning an
+element or a rectangle — `gespann()` turns the rig's screen position into
+one.
 
 ### Mouse steering
 
@@ -890,7 +1042,9 @@ step. `index.html` names that address three times over, in `canonical`,
 
 One localStorage key, `landfracht_v1`. The whole `state` object is serialised
 as-is, plus the rig position. `laden()` refuses anything whose `v` field is
-not 1 — bump that and the old save is discarded rather than migrated.
+not 1 — bump that and the old save is discarded rather than migrated. New
+fields are fine: stage 3 added five, and `umwelt.einrichten()` plus two
+defaults in `laden()` fill them in for older saves.
 
 ## Conventions
 

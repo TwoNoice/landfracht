@@ -164,6 +164,28 @@
     mausAnzeigen();
 
     los.addEventListener('click', function () { losfahren(kasten); });
+
+    // Die Einweisung laeuft ueber dem stehenden Spiel. Das Titelbild tritt
+    // dafuer zur Seite und kommt am Ende zurueck -- es sei denn, man faehrt
+    // direkt aus dem Rundgang los.
+    var einweisung = document.getElementById('t-einweisung');
+    if (einweisung && TG.anleitung) {
+      einweisung.addEventListener('click', function () {
+        kasten.classList.add('aus');
+        document.body.classList.remove('titel-an');
+        TG.anleitung.starten({
+          ausSpiel: false,
+          los: function () { kasten.classList.remove('aus'); losfahren(kasten); },
+          ende: function () {
+            kasten.classList.remove('aus');
+            document.body.classList.add('titel-an');
+            los.focus();
+          }
+        });
+      });
+    } else if (einweisung) {
+      einweisung.classList.add('aus');
+    }
     neu.addEventListener('click', function () {
       // loeschen() sperrt das Speichern, neu() gibt es wieder frei.
       S.loeschen();
@@ -178,7 +200,7 @@
   }
 
   function titelTaste(e) {
-    if (!titelAn) return;
+    if (!titelAn || einweisungLaeuft()) return;
     if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
       e.preventDefault();
       losfahren(document.getElementById('titel'));
@@ -208,7 +230,7 @@
   /* ---------------- Eingaben ---------------- */
   function bindeEingaben() {
     window.addEventListener('keydown', function (e) {
-      if (titelAn || e.repeat) return;
+      if (titelAn || e.repeat || einweisungLaeuft()) return;
       var code = e.code;
 
       if (code === 'Escape') { UI.schliessen(); return; }
@@ -339,6 +361,8 @@
     });
   }
 
+  function einweisungLaeuft() { return !!(TG.anleitung && TG.anleitung.laeuft()); }
+
   /* ---------------- Zuendung ---------------- */
   /** Taste I: Motor anlassen oder abstellen. */
   function zuendung() {
@@ -402,6 +426,8 @@
     S.bei('motor', function (an) { if (!an) T.motorStopp(); });
   }
 
+  var blitzeGehoert = 0;
+
   /** Was der Ton ueber das Gespann wissen muss. */
   function tonZustand(pausiert) {
     var tech = S.technik();
@@ -413,7 +439,11 @@
       bremse: !pausiert && (!!tasten.bremse || mausBremse()),
       motorAus: !laeuft,
       untergrund: tech.untergrund,
-      ladung: tech.ladungsAnteil
+      ladung: tech.ladungsAnteil,
+      // Regen 0..1 fuer das Rauschen; im Schnee bleibt es still, aber auch
+      // die Voegel schweigen.
+      regen: { regen: 0.6, gewitter: 1 }[S.state.wetter.art] || 0,
+      still: S.state.wetter.art === 'schnee'
     };
   }
 
@@ -445,7 +475,7 @@
     letzteZeit = jetzt;
     requestAnimationFrame(schleife);
 
-    var pausiert = titelAn || UI.istOffen();
+    var pausiert = titelAn || UI.istOffen() || einweisungLaeuft();
 
     // Der Anlasser dreht auch bei offenem Panel zu Ende; im Buch steht ein
     // Knopf dafuer, und der darf nicht ins Leere greifen.
@@ -492,6 +522,7 @@
     R.bild(pausiert ? 0 : dt, S);
     // Laeuft auch im Panel weiter: der Motor tuckert dann im Leerlauf.
     T.schritt(dt, tonZustand(pausiert));
+    if (R.blitze() !== blitzeGehoert) { blitzeGehoert = R.blitze(); T.donner(); }
 
     // Bildrate ueber ein halbes Sekundenfenster, fuers Zahlenfeld
     bilderZaehler++;
@@ -542,6 +573,14 @@
 
     if (g.knickWarnung && g.v < -0.2) return 'Der Anhänger knickt ein. Ein Stück vorwärts ziehen, dann neu ansetzen.';
 
+    // Ladungsschaden: nur solange er gerade entsteht, sonst steht der Hinweis
+    // nach einer einzigen schnellen Kurve den Rest der Fahrt da.
+    var lz = S.ladungsZustand();
+    if (lz && lz.grund) {
+      if (lz.grund === 'kurve') return 'Die Ladung verrutscht — <b>langsamer</b> in die Kurven.';
+      if (lz.grund === 'gelaende') return 'Im Gelände rumpelt die Ladung. Langsamer, oder zurück auf den Weg.';
+    }
+
     if (!a) return 'Ohne Anhänger geht nichts. Auf dem Hof kannst du einen ankoppeln — <b>H</b>.';
 
     if (S.amHof()) return '<b>H</b> öffnet den Hof: ankoppeln, tanken, instand setzen.';
@@ -551,7 +590,10 @@
 
     if (s.ladung) {
       var j = S.angenommenerAuftrag(s.ladung.jobId);
-      if (j) return 'Geladen. Ziel: <b>' + U.html(W.ort(j.nach).name) + '</b>.';
+      // Regen auf die Ladung haengt am Wetter, nicht am Fahren -- er steht
+      // deshalb neben dem Ziel statt an dessen Stelle.
+      if (j) return 'Geladen. Ziel: <b>' + U.html(W.ort(j.nach).name) + '</b>.' +
+                    (lz && lz.grund === 'nass' ? ' Es regnet auf die Ladung — eine <b>Abdeckplane</b> gibt es beim Händler.' : '');
     }
 
     var ziel = S.zielOrt();

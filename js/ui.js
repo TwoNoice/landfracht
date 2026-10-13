@@ -26,6 +26,7 @@ TG.ui = (function () {
     el.zustand = $('kf-zustand'); el.zustandB = $('kf-zustand-b');
     el.auftrag = $('kf-auftrag');
     el.kmh = $('t-kmh'); el.gang = $('t-gang'); el.ladung = $('t-ladung'); el.motor = $('t-motor');
+    el.lageWetter = $('lage-wetter'); el.lageEreignisse = $('lage-ereignisse'); el.lageZiele = $('lage-ziele');
 
     document.querySelectorAll('[data-panel]').forEach(function (b) {
       b.addEventListener('click', function () { umschalten(b.getAttribute('data-panel')); });
@@ -97,6 +98,8 @@ TG.ui = (function () {
     el.dieselB.className = anteil < 0.1 ? 'krit' : (anteil < 0.25 ? 'warn' : '');
     el.diesel.textContent = Math.round(t.f.tank) + ' l';
 
+    if (el.lageWetter) lage();
+
     el.zustandB.style.width = t.f.zustand.toFixed(0) + '%';
     el.zustandB.className = t.f.zustand < 25 ? 'krit' : (t.f.zustand < 50 ? 'warn' : '');
     el.zustand.textContent = Math.round(t.f.zustand) + ' %';
@@ -126,13 +129,54 @@ TG.ui = (function () {
     el.motor.textContent = orgelt ? 'Anlasser …' : (laeuft ? 'Motor läuft' : 'Motor aus · I');
     el.motor.className = 'motor' + (laeuft ? ' an' : (orgelt ? ' orgelt' : ' aus'));
     if (s.ladung) {
-      el.ladung.textContent = U.zahl(s.ladung.menge) + ' ' + D.arten[D.waren[s.ladung.ware].art].einheit + ' ' + D.waren[s.ladung.ware].name;
-      el.ladung.className = 'ladung voll';
+      var lz = S.ladungsZustand();
+      var heil = Math.round((1 - lz.schaden) * 100);
+      el.ladung.textContent = U.zahl(s.ladung.menge) + ' ' + D.arten[D.waren[s.ladung.ware].art].einheit + ' ' + D.waren[s.ladung.ware].name +
+        (heil < 100 ? ' · ' + heil + ' % heil' : '');
+      // Rot, solange sie gerade leidet -- das sieht man aus dem Augenwinkel.
+      el.ladung.className = 'ladung voll' + (lz.grund ? ' leidet' : (lz.schaden > 0.15 ? ' angeschlagen' : ''));
     } else {
       var a = S.aktiverAnhaenger();
       el.ladung.textContent = a ? a.spec.name + ', leer' : 'ohne Anhänger';
       el.ladung.className = 'ladung';
     }
+  }
+
+  /* ---------------- Lage: Wetter, Ereignisse, Tagesziele ----------------
+   * Wird mit der Kopfleiste zehnmal in der Sekunde gerufen; geschrieben wird
+   * nur, was sich geaendert hat, sonst flackert die Auswahl im Text. */
+  var lageVorher = { w: '', e: '', z: '' };
+
+  function lage() {
+    var s = S.state, UW = TG.umwelt;
+    var w = UW.wetter(s), vh = UW.vorhersage(s), sz = UW.saison(s);
+    var wt = '<span class="zeichen">' + w.zeichen + '</span><b>' + U.html(w.name) + '</b> · ' + U.html(sz.name) +
+             ' <span class="schwach">Tag ' + UW.saisonTag(s) + '/' + UW.SAISON_TAGE + '</span>' +
+             (vh.spec !== w ? '<span class="schwach"> · danach ' + vh.spec.zeichen + ' ' + U.html(vh.spec.name) + '</span>' : '');
+    if (wt !== lageVorher.w) { el.lageWetter.innerHTML = wt; lageVorher.w = wt; }
+
+    var et = UW.laufende(s).map(function (e) {
+      return '<div>' + U.html(e.text) + ' <span class="schwach">noch ' + U.dauer(e.rest) + '</span></div>';
+    }).join('');
+    if (et !== lageVorher.e) { el.lageEreignisse.innerHTML = et; lageVorher.e = et; }
+
+    var zt = '';
+    if (s.ziele && s.ziele.liste.length) {
+      zt += '<div class="lage-kopf">Tagesziele' + (s.ziele.alle ? ' — alle geschafft' : '') + '</div>';
+      s.ziele.liste.forEach(function (z) { zt += '<div class="' + (z.fertig ? 'fertig' : '') + '">' + zielZeile(z) + '</div>'; });
+    }
+    if (zt !== lageVorher.z) { el.lageZiele.innerHTML = zt; lageVorher.z = zt; }
+  }
+
+  function zielStand(z) {
+    if (z.art === 'strecke') return U.zahl(z.stand / 1000, 1) + '/' + U.zahl(z.ziel / 1000) + ' km';
+    if (z.art === 'tonnen') return U.zahl(z.stand, 1) + '/' + U.zahl(z.ziel) + ' t';
+    return U.zahl(z.stand) + '/' + U.zahl(z.ziel);
+  }
+
+  function zielZeile(z) {
+    return '<span class="haken">' + (z.fertig ? '✓' : '○') + '</span>' + U.html(z.text) +
+           ' <span class="schwach">' + (z.fertig ? 'erledigt' : zielStand(z)) + '</span>';
   }
 
   /* ---------------- Hinweis, Meldung, Fortschritt ---------------- */
@@ -238,6 +282,11 @@ TG.ui = (function () {
     else if (guete > 1.12) marken += '<span class="marke gut">gut bezahlt</span> ';
     if (j.eilig) marken += '<span class="marke eilig">enges Fenster</span> ';
     if (j.anschluss) marken += '<span class="marke gut">Rückfracht</span> ';
+    if (j.sonder) marken += '<span class="marke eilig">Sonderfahrt</span> ';
+    if (j.fest) marken += '<span class="marke gut">Fest am Ziel</span> ';
+    if (j.saison > 1.05) marken += '<span class="marke gut">' + U.html(TG.umwelt.saison(s).name) + 'sware</span> ';
+    else if (j.saison && j.saison < 0.95) marken += '<span class="marke schlecht">wenig gefragt</span> ';
+    if (TG.umwelt.NASS_WAREN.indexOf(j.ware) >= 0) marken += '<span class="marke">nässeempfindlich</span> ';
     if (!hatAnh) marken += '<span class="marke schlecht">' + U.html(art.anhaenger) + ' fehlt</span> ';
     if (j.fahrten > 1) marken += '<span class="marke">' + j.fahrten + ' Fahrten</span> ';
 
@@ -459,6 +508,8 @@ TG.ui = (function () {
     var s = S.state, st = s.stats;
     var h = '';
 
+    h += tagesblatt();
+
     h += '<div class="ueberschrift">Kasse</div>';
     h += reihe('Kontostand', U.geld(s.geld));
     h += reihe('Dieselpreis', U.zahl(s.dieselPreis, 2) + ' € je Liter');
@@ -487,6 +538,8 @@ TG.ui = (function () {
     h += reihe('Eingenommen', U.geld(st.verdient));
     h += reihe('Ausgegeben', U.geld(st.ausgaben));
     h += reihe('Getankter Diesel', U.zahl(st.diesel, 0) + ' l');
+    h += reihe('Abzug für beschädigte Ladung', U.geld(st.schaden || 0));
+    h += reihe('Reifenpannen', U.zahl(st.pannen || 0));
 
     h += '<div class="ueberschrift">Ruf</div>';
     D.stufen.forEach(function (x) {
@@ -531,10 +584,61 @@ TG.ui = (function () {
          Math.round(TG.ton.lautstaerke() * 100) + ' %</b></div>';
     h += '<input type="range" id="ton-schieber" min="0" max="100" step="5" value="' +
          Math.round(TG.ton.lautstaerke() * 100) + '">';
+    // Der Motor eigens: wer ihn leiser will, soll Wind und Voegel behalten.
+    h += '<div class="weg" style="margin-top:8px">Motor: <b id="motor-anzeige">' +
+         Math.round(TG.ton.motorLautstaerke() * 100) + ' %</b></div>';
+    h += '<input type="range" id="motor-schieber" min="0" max="100" step="5" value="' +
+         Math.round(TG.ton.motorLautstaerke() * 100) + '">';
     h += '</div>';
+
+    h += '<div class="ueberschrift">Einweisung</div>';
+    h += '<div class="karte"><div class="weg">Der Rundgang vom Titelbild: einmal durch alle Anzeigen, ' +
+         'Bildschirme und Handgriffe. Die Uhr steht still, solange er läuft.</div>' +
+         '<div class="knopfleiste" style="margin-top:8px"><button class="tat" data-tat="einweisung">Einweisung starten</button></div></div>';
 
     h += '<div class="trenner"></div>';
     h += '<div class="knopfleiste"><button class="tat warn" data-tat="neuanfang">Spielstand löschen und neu anfangen</button></div>';
+    return h;
+  }
+
+  /** Oberer Teil des Buchs: Tagesziele, Wetter, Jahreszeit, Ereignisse. */
+  function tagesblatt() {
+    var s = S.state, UW = TG.umwelt, h = '';
+
+    h += '<div class="ueberschrift">Tagesziele · Tag ' + S.tag() + '</div>';
+    h += '<div class="karte" id="buch-ziele">';
+    if (!s.ziele || !s.ziele.liste.length) h += '<div class="weg">Heute ist nichts ausgeschrieben.</div>';
+    else s.ziele.liste.forEach(function (z) {
+      h += '<div class="reihe ziel' + (z.fertig ? ' fertig' : '') + '"><span class="k">' + zielZeile(z) + '</span>' +
+           '<span class="v">' + U.geld(z.geld) + ' · +' + z.ruf + '</span></div>';
+    });
+    h += '<div class="weg" style="margin-top:6px">Alle drei an einem Tag bringen obendrauf ' + U.geld(300) + ' und Ruf +20. ' +
+         'Um Mitternacht gibt es neue.</div></div>';
+
+    var w = UW.wetter(s), vh = UW.vorhersage(s), sz = UW.saison(s);
+    h += '<div class="ueberschrift">Wetter und Jahreszeit</div>';
+    h += '<div class="karte" id="buch-wetter">';
+    h += reihe('Wetter', w.zeichen + ' ' + w.name);
+    h += reihe('Vorhersage', vh.spec.zeichen + ' ' + vh.spec.name + ' in etwa ' + U.dauer(Math.ceil(vh.in / 15) * 15));
+    h += reihe('Jahreszeit', sz.name + ', Tag ' + UW.saisonTag(s) + ' von ' + UW.SAISON_TAGE);
+    var wirkung = [];
+    if (w.griff < 1) wirkung.push('weniger Halt beim Bremsen und in der Kurve');
+    if (w.tempo.feldweg < 1) wirkung.push('Feldwege und Gelände langsamer');
+    if (w.nass > 0.5) wirkung.push('Stroh, Heu und Sackware werden ohne Plane nass');
+    if (s.wetter.art === 'nebel') wirkung.push('kurze Sicht');
+    h += '<div class="weg" style="margin-top:6px">' + U.html(sz.text) +
+         (wirkung.length ? ' <b>Gerade:</b> ' + U.html(wirkung.join(', ')) + '.' : '') + '</div>';
+    var gefragt = Object.keys(sz.nachfrage).filter(function (k) { return sz.nachfrage[k] > 1; })
+      .map(function (k) { return D.waren[k].name + ' +' + Math.round((sz.nachfrage[k] - 1) * 100) + ' %'; });
+    if (gefragt.length) h += '<div class="weg" style="margin-top:6px">Gefragt: ' + U.html(gefragt.join(' · ')) + '</div>';
+    h += '</div>';
+
+    var lauf = UW.laufende(s);
+    if (lauf.length) {
+      h += '<div class="ueberschrift">Ereignisse</div><div class="karte">';
+      lauf.forEach(function (e) { h += reihe(e.text, 'noch ' + U.dauer(e.rest)); });
+      h += '</div>';
+    }
     return h;
   }
 
@@ -680,6 +784,12 @@ TG.ui = (function () {
       var t = document.getElementById('ton-anzeige');
       if (t) t.textContent = v + ' %';
     }
+    if (e.target.id === 'motor-schieber') {
+      var mv = Number(e.target.value);
+      TG.ton.setzeMotorLautstaerke(mv / 100);
+      var ma = document.getElementById('motor-anzeige');
+      if (ma) ma.textContent = mv + ' %';
+    }
   }
 
   function klick(e) {
@@ -721,6 +831,10 @@ TG.ui = (function () {
       return;
     }
     if (tat === 'ton') { TG.ton.umschalten(); zeichnen(); return; }
+    if (tat === 'einweisung') {
+      if (TG.anleitung) TG.anleitung.starten({ ausSpiel: true });
+      return;
+    }
     if (tat === 'maus') {
       meldung(TG.steuerung.umschalten()
         ? 'Maussteuerung an: lenken zum Zeiger, linke Maustaste Gas, rechte Bremse.'

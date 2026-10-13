@@ -73,6 +73,140 @@ TG.spiel = (function () {
     for (var i = 0; i < l.length; i++) l[i](daten);
   }
 
+  /* Wetter, Ereignisse und Tagesziele (umwelt.js) melden sich hierueber.
+   * Die Belohnung laeuft durch game.js, weil nur hier der Stufenaufstieg
+   * behandelt wird. */
+  var UW = TG.umwelt;
+  UW.anmelden({
+    melden: function (text, art) { melden('meldung', { text: text, art: art }); },
+    belohnen: function (geld, ruf, text) {
+      var alteStufe = stufe();
+      state.geld += geld;
+      state.stats.verdient += geld;
+      state.ruf += ruf;
+      melden('meldung', { text: text, art: 'gut' });
+      melden('ziel', null);
+      stufeMelden(alteStufe);
+    }
+  });
+
+  /* =============================================================
+   *  Ladungsschaden
+   *
+   *  Vier Wege, auf denen Ladung leidet: zu schnell in die Kurve, Anstossen,
+   *  Rumpeln im Gelaende und Naesse. Der Schaden ist ein Anteil 0..1 der
+   *  aktuellen Ladung und kuerzt beim Abrechnen den Lohn im selben Verhaeltnis.
+   *
+   *  querGrund ist die Querbeschleunigung, die ein Anhaenger mit kurve = 1
+   *  vertraegt. Nachgemessen ueber das ganze Netz mit Vollgas: Median 1,0,
+   *  90 % unter 2,2, 99 % unter 3,7 m/s^2. Die Mulde (kurve 1,0) verliert
+   *  damit auch beim Rasen fast nichts, der Ballenwagen (0,52, Grenze 1,8)
+   *  schon in jeder zehnten Sekunde -- wer Ballen faehrt, nimmt Gas weg.
+   * ============================================================= */
+  var SCHADEN = {
+    querGrund: 3.4,
+    kurve: 0.05,          // je Sekunde und je Anteil ueber der Grenze
+    stoss: 0.025,         // je m/s Aufprall
+    gelaende: 0.0025,     // je Sekunde und je m/s ueber 3 m/s im Gelaende
+    nass: 0.0015,         // je echter Sekunde bei Regen, ohne Plane
+    hoechstens: 0.8
+  };
+  /* Wie sehr eine Auftragsart auf all das reagiert. Schuettgut verzeiht viel,
+   * Ballen und Paletten kippen. */
+  var EMPFINDLICH = { schuett: 0.4, palette: 1.0, ballen: 1.0, fluessig: 0.6, fahrzeug: 0.8, holz: 0.5 };
+
+  /* Geglaettet: einzelne Bilder mit Spitzen von 9 m/s^2 (Anhaenger am
+   * Knickanschlag, Abprallen) sind keine Kurvenfahrt. */
+  var querGlatt = 0;
+  var schadenGrund = null, schadenZuletzt = -1e9;
+
+  function ladungSchritt(dt, a, tech) {
+    var l = state.ladung;
+    if (!l || !a || pruef('heil')) { querGlatt = 0; return; }
+    if (l.schaden === undefined) l.schaden = 0;
+    var empf = EMPFINDLICH[a.spec.art] || 0.6;
+    var vorher = l.schaden, grund = null, plus = 0;
+
+    querGlatt += (gespann.querBeschl - querGlatt) * Math.min(1, dt / 0.25);
+    var grenze = SCHADEN.querGrund * a.spec.kurve;
+    if (querGlatt > grenze) { plus += empf * SCHADEN.kurve * (querGlatt / grenze - 1) * dt; grund = 'kurve'; }
+
+    if (gespann.stoss > 1.2) { plus += empf * SCHADEN.stoss * gespann.stoss; grund = 'stoss'; }
+
+    var v = Math.abs(gespann.v);
+    if (tech.untergrund === 'gelaende' && v > 3) {
+      plus += empf * SCHADEN.gelaende * (v - 3) * dt;
+      grund = grund || 'gelaende';
+    }
+
+    var nass = UW.wetter(state).nass;
+    if (nass > 0 && UW.NASS_WAREN.indexOf(l.ware) >= 0 && !hatAusruestung('plane')) {
+      plus += SCHADEN.nass * nass * dt;
+      grund = grund || 'nass';
+    }
+
+    if (plus <= 0) return;
+    l.schaden = Math.min(SCHADEN.hoechstens, l.schaden + plus);
+    schadenGrund = grund;
+    schadenZuletzt = state.zeit;
+
+    // Nur an wenigen Schwellen melden, nicht in jedem Bild.
+    [0.05, 0.15, 0.3, 0.5].forEach(function (schwelle) {
+      if (vorher < schwelle && l.schaden >= schwelle) {
+        var warum = { kurve: 'Zu schnell in der Kurve — die Ladung verrutscht.',
+                      stoss: 'Der Aufprall hat der Ladung zugesetzt.',
+                      gelaende: 'Das Gerumpel im Gelände bekommt der Ladung nicht.',
+                      nass: 'Die Ladung wird nass.' }[grund];
+        melden('meldung', { text: warum + ' ' + Math.round(l.schaden * 100) + ' % beschädigt.', art: 'schlecht' });
+      }
+    });
+  }
+
+  /** Fuer Tacho und Hinweis: wie es der Ladung geht und ob sie gerade leidet. */
+  function ladungsZustand() {
+    if (!state.ladung) return null;
+    return {
+      schaden: state.ladung.schaden || 0,
+      // Spielminuten; eine knappe Sekunde Nachlauf, damit der Hinweis nicht flackert.
+      grund: state.zeit - schadenZuletzt < 0.6 ? schadenGrund : null
+    };
+  }
+
+  /* =============================================================
+   *  Reifenpanne
+   *
+   *  Haengt an den gefahrenen Metern und am Zustand, nicht an der Uhr: wer
+   *  steht, platzt keinen Reifen, und wer seinen Schlepper verkommen laesst,
+   *  steht oefter am Strassenrand. Gut in Schuss etwa alle 50 km, ganz
+   *  durchgefahren alle 12 km.
+   * ============================================================= */
+  var PANNE_PRO_KM = 0.02;
+
+  function panneWuerfeln(meter, t) {
+    if (meter <= 0 || Math.abs(gespann.v) < 4 || pruef('heil')) return;
+    var abn = 1 - t.f.zustand / 100;
+    var p = PANNE_PRO_KM * (meter / 1000) * (1 + 3 * abn * abn);
+    if (Math.random() >= p) return;
+    var kosten = U.zufallGanz(12, 22) * 10;
+    gespann.v = 0;
+    t.f.zustand = U.clamp(t.f.zustand - 4, 0, 100);
+    state.geld -= kosten;
+    state.stats.ausgaben += kosten;
+    state.stats.pannen = (state.stats.pannen || 0) + 1;
+    melden('meldung', { text: 'Reifenpanne! Der Pannendienst flickt dich am Straßenrand: ' + U.geld(kosten) +
+                              ' und 40 Minuten. Ein Schlepper in gutem Zustand hat seltener eine.', art: 'schlecht' });
+    zeitVoran(40);
+  }
+
+  function stufeMelden(alteStufe) {
+    var neueStufe = stufe();
+    if (neueStufe > alteStufe) {
+      var s = D.stufen[neueStufe - 1];
+      melden('meldung', { text: 'Ruf-Stufe ' + neueStufe + ' erreicht. Neu: ' + s.frei, art: 'gut' });
+      melden('stufe', neueStufe);
+    }
+  }
+
   /* =============================================================
    *  Neues Spiel
    * ============================================================= */
@@ -94,10 +228,11 @@ TG.spiel = (function () {
       dieselPreis: BAL.dieselBasis,
       letzteWoche: 0,
       kredit: { betrag: 0, aufnahme: 0 },
-      stats: { meter: 0, tonnen: 0, auftraege: 0, puenktlich: 0, verspaetet: 0, abgebrochen: 0, verdient: 0, ausgaben: 0, diesel: 0 },
+      stats: { meter: 0, tonnen: 0, auftraege: 0, puenktlich: 0, verspaetet: 0, abgebrochen: 0, verdient: 0, ausgaben: 0, diesel: 0, schaden: 0, pannen: 0 },
       pos: null,
       einstieg: 0
     };
+    UW.einrichten(state);
 
     var t = neuesFahrzeug('traktor', 'hoftraktor', 78);
     var a = neuesFahrzeug('anhaenger', 'mk1', 71);
@@ -172,6 +307,10 @@ TG.spiel = (function () {
     uidZaehler = s.uidZaehler || (s.fuhrpark.length + 1);
     if (!state.kredit) state.kredit = { betrag: 0, aufnahme: 0 };
     if (!state.ausruestung) state.ausruestung = [];
+    // Staende von vor Stufe 3 kennen kein Wetter und keine Tagesziele.
+    UW.einrichten(state);
+    if (state.stats.schaden === undefined) state.stats.schaden = 0;
+    if (state.stats.pannen === undefined) state.stats.pannen = 0;
 
     var hoechste = 1;
     state.boerse.concat(state.angenommen).forEach(function (j) {
@@ -260,12 +399,14 @@ TG.spiel = (function () {
      * Hoechstgeschwindigkeit anzuheben hiesse, dass der Weg dorthin mitwaechst
      * -- bei ×4 waere die halbe Karte Anlauf. */
     var tf = pruefTempo();
+    var wf = UW.fahrFaktor(state, untergrund);
 
     return {
       untergrund: untergrund,
       ps: t.spec.ps * tf,
       achsstand: t.spec.achsstand,
-      vmaxKmh: t.spec.vmax * aw.speed * tf,
+      vmaxKmh: t.spec.vmax * aw.speed * wf.tempo * tf,
+      griff: wf.griff,
       masseTraktor: t.spec.masse,
       masseGesamt: t.spec.masse + masseAnh,
       ladungsAnteil: anteil,
@@ -287,6 +428,7 @@ TG.spiel = (function () {
     state.zeit += spielminuten;
     pruefeWoche();
     pruefeFristen();
+    UW.takt(state);
   }
 
   function pruefeWoche() {
@@ -433,6 +575,7 @@ TG.spiel = (function () {
         if (a) a.f.zustand = U.clamp(a.f.zustand - abnutzung * 0.7, 0, 100);
       }
       state.stats.meter += meter;
+      UW.zielMelden(state, 'meter', meter);
     }
 
     // Anstossen kostet Substanz
@@ -442,8 +585,12 @@ TG.spiel = (function () {
       if (a) a.f.zustand = U.clamp(a.f.zustand - schaden * 0.8, 0, 100);
     }
 
+    ladungSchritt(dt, a, tech);
+    panneWuerfeln(meter, t);
+
     pruefeWoche();
     pruefeFristen();
+    UW.takt(state);
     vorgangSchritt(dt);
 
     return { meter: meter, untergrund: tech.untergrund, leer: leer, lph: lph, motor: motor.laeuft };
@@ -564,7 +711,7 @@ TG.spiel = (function () {
   }
 
   function ladenFertig(c) {
-    state.ladung = { jobId: c.job.id, ware: c.job.ware, menge: c.menge };
+    state.ladung = { jobId: c.job.id, ware: c.job.ware, menge: c.menge, schaden: 0 };
     melden('meldung', {
       text: U.zahl(c.menge) + ' ' + c.job.einheit + ' ' + D.waren[c.job.ware].name +
             ' geladen. Ziel: ' + W.ort(c.job.nach).name + '.', art: 'gut'
@@ -577,7 +724,11 @@ TG.spiel = (function () {
     var j = c.job;
     j.geliefert += state.ladung.menge;
     var w = D.waren[j.ware];
-    state.stats.tonnen += state.ladung.menge * (w ? w.tProEinheit : 1);
+    var tonnen = state.ladung.menge * (w ? w.tProEinheit : 1);
+    var schaden = state.ladung.schaden || 0;
+    state.stats.tonnen += tonnen;
+    // Mengengewichtet, damit bei zwei Fuhren jede nach ihrem Anteil zaehlt.
+    j.schaden = (j.schaden || 0) + schaden * state.ladung.menge;
     state.ladung = null;
 
     if (j.geliefert >= j.menge) abrechnen(j);
@@ -587,6 +738,9 @@ TG.spiel = (function () {
       });
       speichern();
     }
+    // Nach der Abrechnung, damit die Meldung zum Tagesziel nicht vor der
+    // zur Lieferung steht.
+    UW.zielMelden(state, 'abgeladen', { tonnen: tonnen, ware: j.ware, nach: j.nach, schaden: schaden });
     rueckfracht(j.nach);
   }
 
@@ -658,19 +812,28 @@ TG.spiel = (function () {
     var verspaetung = state.zeit - j.faelligUm;
     var lohn = j.lohn, rufGewinn = j.ruf, text, art;
 
+    // Beschaedigte Ware kuerzt den Lohn im selben Verhaeltnis. Ab einem
+    // Zehntel merkt sich der Kunde das auch.
+    var schaden = j.menge > 0 ? U.clamp((j.schaden || 0) / j.menge, 0, 1) : 0;
+    var abzug = Math.round(lohn * schaden);
+    lohn -= abzug;
+    if (schaden > 0.1) rufGewinn = Math.round(rufGewinn * Math.max(0, 1 - 2 * schaden));
+    var schadenText = abzug > 0 ? ' Ladung zu ' + Math.round(schaden * 100) + ' % beschädigt, ' + U.geld(abzug) + ' Abzug.' : '';
+    state.stats.schaden += abzug;
+
     if (verspaetung <= 0) {
       var rest = -verspaetung;
       var frueh = rest > j.fensterMin * 0.4;
       if (frueh) { lohn = Math.round(lohn * 1.05); }
       state.stats.puenktlich++;
       text = 'Geliefert: ' + U.zahl(j.menge) + ' ' + j.einheit + ' ' + D.waren[j.ware].name +
-             '. ' + U.geld(lohn) + (frueh ? ' (mit Bonus für frühe Lieferung)' : '') + ', Ruf +' + rufGewinn + '.';
-      art = 'gut';
+             '. ' + U.geld(lohn) + (frueh ? ' (mit Bonus für frühe Lieferung)' : '') + ', Ruf +' + rufGewinn + '.' + schadenText;
+      art = schaden > 0.1 ? 'schlecht' : 'gut';
     } else {
       lohn = Math.max(0, lohn - j.strafe);
       rufGewinn = -Math.round(j.ruf * 0.5);
       state.stats.verspaetet++;
-      text = 'Zu spät geliefert. Nur ' + U.geld(lohn) + ' nach Abzug der Strafe, Ruf ' + rufGewinn + '.';
+      text = 'Zu spät geliefert. Nur ' + U.geld(lohn) + ' nach Abzug der Strafe, Ruf ' + rufGewinn + '.' + schadenText;
       art = 'schlecht';
     }
 
@@ -680,13 +843,9 @@ TG.spiel = (function () {
     state.stats.auftraege++;
 
     melden('meldung', { text: text, art: art });
+    stufeMelden(alteStufe);
 
-    var neueStufe = stufe();
-    if (neueStufe > alteStufe) {
-      var s = D.stufen[neueStufe - 1];
-      melden('meldung', { text: 'Ruf-Stufe ' + neueStufe + ' erreicht. Neu: ' + s.frei, art: 'gut' });
-      melden('stufe', neueStufe);
-    }
+    UW.zielMelden(state, 'fertig', { job: j, puenktlich: verspaetung <= 0 });
 
     TG.auftraege.auffuellen(state);
     speichern();
@@ -739,7 +898,7 @@ TG.spiel = (function () {
     var spec = f.typ === 'traktor' ? D.traktor(f.id) : D.anhaenger_(f.id);
     var wert = spec.neuwert || spec.preis || 10000;
     var punkte = 100 - f.zustand;
-    var satz = BAL.reparaturGrund + wert * BAL.reparaturProWert;
+    var satz = (BAL.reparaturGrund + wert * BAL.reparaturProWert) * UW.reparaturFaktor(state);
     return { punkte: punkte, kosten: Math.round(punkte * satz), minuten: Math.round(punkte * BAL.reparaturMinutenProPunkt) };
   }
 
@@ -914,6 +1073,8 @@ TG.spiel = (function () {
 
     motorLaeuft: motorLaeuft, motorOrgelt: motorOrgelt, zuendungSchritt: motorSchritt,
     motorStarten: motorStarten, motorAbstellen: motorAbstellen, motorUmschalten: motorUmschalten,
+
+    ladungsZustand: ladungsZustand, SCHADEN: SCHADEN,
 
     aktuelleZone: aktuelleZone, anTankstelle: anTankstelle, amHof: amHof, beimHaendler: beimHaendler,
     naheOrt: naheOrt, rueckfracht: rueckfracht,

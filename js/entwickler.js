@@ -242,6 +242,11 @@ TG.entwickler = (function () {
     h += zeile('Ladechance', c ? c.art + ' ' + U.zahl(c.menge) : '–');
     h += zeile('Zeit', 'Tag ' + S.tag() + ' ' + U.uhrzeit(s.zeit) + ' · Stufe ' + S.stufe());
     h += zeile('Aufträge', s.angenommen.length + ' laufend · ' + s.boerse.length + ' in der Börse');
+    var uw = TG.umwelt;
+    h += zeile('Wetter', uw.wetter(s).name + ' bis ' + U.uhrzeit(s.wetter.bis) + ' · ' + uw.saison(s).name);
+    var lz = S.ladungsZustand();
+    h += zeile('Quer', g.querBeschl.toFixed(2) + ' m/s²' + (a ? ' · Grenze ' + (S.SCHADEN.querGrund * a.spec.kurve).toFixed(2) : '') +
+               (lz ? ' · Schaden ' + (lz.schaden * 100).toFixed(1) + ' %' : ''));
     if (stand.tempo !== 1) h += zeile('Tempofaktor', '×' + stand.tempo);
     return h;
   }
@@ -296,6 +301,22 @@ TG.entwickler = (function () {
     D.stufen.forEach(function (x) {
       h += '<button class="tat' + (S.stufe() === x.stufe ? ' haupt' : '') + '" data-tat="p-ruf" data-wert="' + x.ruf + '">Stufe ' + x.stufe + '</button>';
     });
+    h += '</div></div>';
+
+    h += '<div class="ueberschrift">Wetter und Ereignisse</div>';
+    h += '<div class="karte"><div class="weg">Jetzt: <b>' + U.html(TG.umwelt.wetter(s).name) + '</b>, ' +
+         U.html(TG.umwelt.saison(s).name) + '. Setzt das Wetter sofort; danach wechselt es wie gewohnt.</div>' +
+         '<div class="knopfleiste" style="margin-top:8px">';
+    Object.keys(TG.umwelt.wetterArten).forEach(function (k) {
+      h += '<button class="tat' + (s.wetter.art === k ? ' haupt' : '') + '" data-tat="p-wetter" data-wert="' + k + '">' +
+           U.html(TG.umwelt.wetterArten[k].name) + '</button>';
+    });
+    h += '</div><div class="weg" style="margin-top:10px">Ein Ereignis jetzt auslösen:</div>' +
+         '<div class="knopfleiste" style="margin-top:6px">';
+    Object.keys(TG.umwelt.ereignisArten).forEach(function (k) {
+      h += '<button class="tat" data-tat="p-ereignis" data-wert="' + k + '">' + U.html(k) + '</button>';
+    });
+    h += '<button class="tat" data-tat="p-ziele">Tagesziele neu</button>';
     h += '</div></div>';
 
     h += '<div class="ueberschrift">Fuhrpark und Aufträge</div>';
@@ -391,6 +412,13 @@ TG.entwickler = (function () {
       melden(erg.ok
         ? 'Versetzt nach ' + erg.ort.name + (erg.zone ? ' — direkt in die Ladezone.' : '.')
         : erg.grund, erg.ok ? 'gut' : 'schlecht');
+    } else if (tat === 'p-wetter') {
+      TG.umwelt.wetterSetzen(s, b.getAttribute('data-wert'));
+    } else if (tat === 'p-ereignis') {
+      TG.umwelt.ausloesen(s, b.getAttribute('data-wert'));
+    } else if (tat === 'p-ziele') {
+      TG.umwelt.zieleWuerfeln(s);
+      melden('Tagesziele neu gewürfelt.');
     } else if (tat === 'p-aus') {
       umschalten(false);
       melden('Prüfstand aus. Mit Strg+Alt+E kommt er wieder.');

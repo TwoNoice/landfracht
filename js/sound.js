@@ -21,7 +21,7 @@
  * Das ist der Unterschied zu einer Oberwellenreihe, und es ist der Grund,
  * warum hier kaum noch Bass sitzt: das Ohr hoert die Drehzahl an der
  * Wiederholrate der Schlaege, nicht an der Energie bei 38 Hz. Unterhalb von
- * 120 Hz liegt darum fast nichts, und es klingt trotzdem nach einem langsam
+ * 150 Hz liegt darum fast nichts, und es klingt trotzdem nach einem langsam
  * laufenden Diesel. Mit einer Oberwellenreihe ging das nicht: dort musste der
  * Grundton da sein, damit die Drehzahl stimmt -- und der Grundton war genau
  * das Wummern, das weg sollte.
@@ -47,12 +47,20 @@ TG.ton = (function () {
    * ============================================================= */
   var KLANG = {
     ZYLINDER: 6,
-    ZUENDUNGEN: 72,        // 12 volle Arbeitsspiele je Schleife
+    // 360 Zuendungen sind sechs Sekunden Schleife bei 60 Hz. Die alte Schleife
+    // hatte 72, also 1,2 s -- kurz genug, dass das Ohr das Muster nach einer
+    // Minute kennt und nicht mehr loslaesst. Das war die halbe Eintoenigkeit.
+    ZUENDUNGEN: 360,
     BASIS_HZ: 60,          // Zuendfrequenz, auf die der Puffer gerechnet ist
 
-    BRENN_ANTEIL: 0.22,    // Laenge des Druckbergs, Anteil am Zuendabstand
-    BERG: 0.45,            // Druckberg gegen Rauheit im Verbrennungsschlag
-    NAGELN: 0.30,          // Staerke der Ventilschlaege dazwischen
+    // Etwas laenger und weicher ausklingend als vorher (0,22, Abfall 4,2):
+    // ein Pochen statt eines Knalls. Ganz rund (0,34 / 0,78) war zu weich --
+    // dann steckt im Schlag selbst nichts mehr oberhalb von 1 kHz, und kein
+    // Filter dahinter kann den Klang unter Last noch oeffnen. Gemessen lag
+    // der Schwerpunkt damit bei 190 Hz: kein Stechen mehr, dafuer Droehnen.
+    BRENN_ANTEIL: 0.26,
+    BERG: 0.45,
+    NAGELN: 0.16,          // Ventiltrieb: halb so stark wie vorher
 
     // Eigenheiten je Zylinder, als Anteil des Zuendabstands und der Kraft.
     // Zu eng klingt nach Metronom, zu weit laesst die Autokorrelation auf die
@@ -60,32 +68,48 @@ TG.ton = (function () {
     // wirkt dann langsamer, als er dreht. Gemessen sind 1,1 % und 7 % der
     // brauchbare Bereich.
     STREU_ZEIT: 0.011,
-    STREU_KRAFT: 0.07,
+    STREU_KRAFT: 0.05,
+    // Dazu jede einzelne Verbrennung ein wenig anders stark, ohne festes
+    // Muster -- wie beim echten Motor von Arbeitsspiel zu Arbeitsspiel. Weil
+    // sie sich nicht wiederholt, rastet die Tonhoehe darauf nicht ein; sie
+    // macht den Lauf nur lebendig.
+    STREU_ZYKLUS: 0.14,
 
     // Resonanzen des Motorkoerpers: [Frequenz, Guete, Pegel, Gruppe].
     // Die Frequenzen bleiben fest, waehrend die Drehzahl steigt -- beim echten
     // Motor ist es genauso: der Block klingt immer gleich, nur die Anregung
     // wird schneller. Deshalb steht der Koerper hier auch ausserhalb des
     // Puffers und nicht darin.
+    //
+    // Die Gueten sind gegenueber vorher halbiert. Schmale Resonanzen klingen
+    // nach jedem Schlag lange nach und legen einen festen Ton unter den Motor,
+    // der sich bei keiner Drehzahl aendert -- genau das Dauerbrummen, das
+    // anstrengt. Breit gedaempft bleibt vom Koerper nur die Farbe.
     MODEN: [
-      [150, 5.0, 0.28, 'groll'],     // der Block selbst
-      [245, 7.5, 0.80, 'groll'],     // Auspuffsaeule
-      [430, 7.0, 1.00, 'groll'],     // Blech
-      [790, 6.0, 0.72, 'groll'],
-      [1500, 5.0, 0.85, 'klapper'],  // hier sitzt das Nageln
-      [2700, 4.0, 0.50, 'klapper'],
-      [4200, 3.5, 0.24, 'klapper']
+      [150, 2.6, 0.25, 'groll'],     // der Block selbst
+      [240, 3.2, 0.80, 'groll'],     // Auspuffsaeule
+      [400, 3.6, 0.90, 'groll'],     // Blech
+      [700, 3.2, 0.60, 'groll'],
+      [1300, 2.6, 0.45, 'klapper'],  // hier sitzt das Nageln
+      [2400, 2.2, 0.16, 'klapper'],
+      [3900, 2.0, 0.035, 'klapper']
     ],
 
-    HOCHPASS: 120,         // was darunter liegt, ist Wummern
+    HOCHPASS: 150,         // was darunter liegt, ist Wummern
 
-    // Gesamtpegel. Auf gleichen Effektivwert wie die alte Oberwellenreihe
-    // gestellt war viel zu laut, auf gleiche A-bewertete Lautheit immer noch:
-    // eine Schlagfolge draengt sich staerker auf, als ihr Messwert sagt, und
-    // ihre Spitzen drueckten den Begrenzer bei jeder Zuendung herunter --
-    // 0,38 mal Lautstaerke 0,7 liegt ueber dessen Schwelle von 0,25, der Motor
-    // hat also den ganzen Rest im Zuendtakt weggedrueckt. Bei 0,55 bleiben die
-    // Spitzen mit gut 0,10 klar darunter.
+    // Ein Tiefpass ueber dem ganzen Motor, der mit der Last aufgeht: im
+    // Leerlauf und beim Rollen dumpf, unter Vollgas offen. Ein Motor, der
+    // immer gleich hell klingt, klingt immer gleich -- die Helligkeit ist
+    // das, woran man Last hoert, lange bevor sich die Drehzahl aendert.
+    TIEFPASS_ZU: 1300,
+    TIEFPASS_AUF: 3600,
+
+    // Gesamtpegel. Der Wert allein sagt wenig: 0,55 war vorher zu laut und
+    // ist es jetzt nicht mehr, weil der Pegel nun mit der Last geht (siehe
+    // setzen) und die stechenden Anteile fehlen. A-bewertet gemessen gegen
+    // die alte Fassung: Leerlauf rund 10 dB leiser, Vollgas rund 4 dB --
+    // zwischen beiden liegen jetzt 11 dB statt 4, und genau dieser Abstand
+    // ist es, der den Motor nicht mehr eintoenig klingen laesst.
     MEISTER: 0.55,
 
     // Ab hier nur wirksam, wenn eine echte Aufnahme eingebettet ist, also
@@ -101,11 +125,15 @@ TG.ton = (function () {
   var n = null;              // dauerhafte Knoten
   var aktiv = true;          // Ton eingeschaltet?
   var laut = 0.7;            // 0 .. 1
+  var motorLaut = 0.6;       // 0 .. 1, nur Motor, Lader und Getriebe
   var wach = false;          // Browser erlauben Audio erst nach einer Eingabe
 
   var zeit = 0;              // Sekunden Laufzeit, treibt die langsamen Schwebungen
   var dreh = 0.14;           // geglaettete Drehzahl 0 .. 1
   var ladedruck = 0;         // Lader 0 .. 1, laeuft der Drehzahl hinterher
+  var last = 0;              // getretenes Gas 0 .. 1, geglaettet
+  var gangVorher = 0;
+  var schaltPause = 0;       // Sekunden, die der Schaltvorgang noch dauert
   var vogelUhr = 4;          // Sekunden bis zum naechsten Vogel
   var ladeLaeuft = false;
 
@@ -119,12 +147,13 @@ TG.ton = (function () {
       var d = JSON.parse(roh);
       if (typeof d.an === 'boolean') aktiv = d.an;
       if (typeof d.laut === 'number') laut = U.clamp(d.laut, 0, 1);
+      if (typeof d.motor === 'number') motorLaut = U.clamp(d.motor, 0, 1);
     } catch (e) { /* ohne gespeicherte Einstellung ist der Vorgabewert richtig */ }
   }
 
   function einstellungenSchreiben() {
     try {
-      window.localStorage.setItem(SCHLUESSEL, JSON.stringify({ an: aktiv, laut: laut }));
+      window.localStorage.setItem(SCHLUESSEL, JSON.stringify({ an: aktiv, laut: laut, motor: motorLaut }));
     } catch (e) { /* privater Modus: dann eben nur fuer diese Sitzung */ }
   }
 
@@ -217,11 +246,12 @@ TG.ton = (function () {
     for (k = 0; k < KLANG.ZUENDUNGEN; k++) {
       var zyl = k % KLANG.ZYLINDER;
       var start = Math.round(k * abstand + versatz[zyl] * abstand);
+      var zyklus = 1 + (Math.random() * 2 - 1) * KLANG.STREU_ZYKLUS;
       for (j = 0; j < brennLaenge; j++) {
         var t = j / brennLaenge;
-        var wert = Math.exp(-4.2 * t) *
+        var wert = Math.exp(-3.2 * t) *
                    (KLANG.BERG * Math.sin(Math.PI * t) + (1 - KLANG.BERG) * rauh());
-        d[(start + j + laenge) % laenge] += wert * staerke[zyl];
+        d[(start + j + laenge) % laenge] += wert * staerke[zyl] * zyklus;
       }
     }
 
@@ -279,8 +309,10 @@ TG.ton = (function () {
     quelle.start();
 
     var grollGain = verstaerker(0), klapperGain = verstaerker(0), motorGain = verstaerker(0);
-    grollGain.connect(motorGain);
-    klapperGain.connect(motorGain);
+    var tief = filter('lowpass', KLANG.TIEFPASS_ZU, 0.6);
+    grollGain.connect(tief);
+    klapperGain.connect(tief);
+    tief.connect(motorGain);
     motorGain.connect(summe);
 
     var moden = [];
@@ -294,11 +326,17 @@ TG.ton = (function () {
 
     return {
       art: 'synthese', moden: moden, hoch: hoch,
-      setzen: function (umin, dreh, ladedruck, motorAus) {
+      /* last 0 .. 1: wie weit das Gas gerade getreten ist, geglaettet. Die
+       * Aufnahmen kennen sie nicht und lassen sie weg. */
+      setzen: function (umin, dreh, ladedruck, motorAus, last) {
+        last = last || 0;
         setz(quelle.playbackRate, (umin / 20) / KLANG.BASIS_HZ, 0.06);
-        setz(motorGain.gain, motorAus ? 0 : KLANG.MEISTER * (0.55 + 0.45 * dreh), 0.08);
-        setz(grollGain.gain, motorAus ? 0 : 0.45 + 0.75 * dreh + 0.30 * ladedruck, 0.08);
-        setz(klapperGain.gain, motorAus ? 0 : 1.05 - 0.35 * dreh, 0.08);
+        setz(motorGain.gain, motorAus ? 0
+             : KLANG.MEISTER * (0.42 + 0.30 * Math.min(dreh, 1) + 0.38 * last), 0.1);
+        setz(grollGain.gain, motorAus ? 0 : 0.7 + 0.35 * dreh + 0.25 * ladedruck, 0.1);
+        setz(klapperGain.gain, motorAus ? 0 : 0.6 + 0.5 * last, 0.1);
+        setz(tief.frequency, KLANG.TIEFPASS_ZU +
+             (KLANG.TIEFPASS_AUF - KLANG.TIEFPASS_ZU) * U.clamp(0.25 * dreh + 0.75 * last, 0, 1), 0.12);
       }
     };
   }
@@ -416,16 +454,25 @@ TG.ton = (function () {
     var summe = verstaerker(aktiv ? laut : 0);
     // Der Begrenzer faengt ab, wenn Motor, Untergrund und ein Rums
     // gleichzeitig anliegen.
+    // Sanfter als vorher (-12 dB bei 10:1): der harte Begrenzer hat bei jeder
+    // Zuendspitze den ganzen Rest heruntergedrueckt und wieder losgelassen,
+    // und dieses Pumpen im Zuendtakt ermuedet mehr als jede Lautstaerke.
     var begrenzer = ctx.createDynamicsCompressor();
-    begrenzer.threshold.value = -12;
-    begrenzer.knee.value = 12;
-    begrenzer.ratio.value = 10;
-    begrenzer.attack.value = 0.004;
-    begrenzer.release.value = 0.2;
+    begrenzer.threshold.value = -8;
+    begrenzer.knee.value = 10;
+    begrenzer.ratio.value = 5;
+    begrenzer.attack.value = 0.01;
+    begrenzer.release.value = 0.25;
     summe.connect(begrenzer);
     begrenzer.connect(ctx.destination);
 
     var puffer = rauschPuffer(2.4);
+
+    // Eigener Regler fuer alles, was vom Schlepper selbst kommt. Wind, Voegel
+    // und Signale haengen nicht daran -- wer den Motor leiser will, will die
+    // Welt deswegen nicht leiser.
+    var motorBus = verstaerker(motorLaut);
+    motorBus.connect(summe);
 
     /* ---- Motor ----
      * Eine eingebettete Aufnahme hat Vorrang. Ohne sie die gerechnete Bauart,
@@ -433,8 +480,8 @@ TG.ton = (function () {
      */
     var motor = (window.TG.klangMotor && window.TG.klangMotor.proben &&
                  window.TG.klangMotor.proben.length)
-              ? motorAusProben(summe)
-              : motorSynthetisch(summe);
+              ? motorAusProben(motorBus)
+              : motorSynthetisch(motorBus);
 
     /* ---- Lader ----
      * Schmalbandiges Rauschen statt eines Oszillators: ein reiner Sinus klingt
@@ -442,20 +489,22 @@ TG.ton = (function () {
      * Ladedruck, nicht an der Drehzahl -- deshalb pfeift es beim Anfahren unter
      * Last hoch und faellt beim Vomgaswegnehmen ab.
      */
-    var laderFilter = filter('bandpass', 1900, 12);
+    var laderFilter = filter('bandpass', 1500, 6);
     var laderGain = verstaerker(0);
-    laderFilter.connect(laderGain); laderGain.connect(summe);
+    laderFilter.connect(laderGain); laderGain.connect(motorBus);
     rauschQuelle(puffer, laderFilter);
 
     /* ---- Getriebeheulen ----
      * Sehr leise, haengt am Tempo statt an der Drehzahl. Erst damit klingt es
      * nach einem fahrenden Fahrzeug und nicht nach einem Motor auf dem Bock.
      */
+    // Sinus statt Dreieck: die Obertoene des Dreiecks standen als duenner,
+    // fester Pfeifton ueber allem.
     var heulOsz = ctx.createOscillator();
-    heulOsz.type = 'triangle';
-    heulOsz.frequency.value = 320;
+    heulOsz.type = 'sine';
+    heulOsz.frequency.value = 200;
     var heulGain = verstaerker(0);
-    heulOsz.connect(heulGain); heulGain.connect(summe);
+    heulOsz.connect(heulGain); heulGain.connect(motorBus);
     heulOsz.start();
 
     /* ---- Untergrund unter den Raedern ---- */
@@ -473,6 +522,16 @@ TG.ton = (function () {
     windFilter.connect(windGain); windGain.connect(summe);
     rauschQuelle(puffer, windFilter);
 
+    /* ---- Regen: dunkles Rauschen, kein Zischen ----
+     * Bewusst unter 1,6 kHz gehalten. Echter Regen ist heller, aber er laeuft
+     * minutenlang unter allem anderen, und das Ohr ermuedet an hellem Rauschen
+     * schneller als am Motor. */
+    var regenFilter = filter('lowpass', 1600, 0.5);
+    var regenHoch = filter('highpass', 350, 0.6);
+    var regenGain = verstaerker(0);
+    regenFilter.connect(regenHoch); regenHoch.connect(regenGain); regenGain.connect(summe);
+    rauschQuelle(puffer, regenFilter);
+
     /* ---- Laden und Abladen ---- */
     var ladeFilter = filter('bandpass', 900, 3.5);
     var ladeGain = verstaerker(0);
@@ -481,11 +540,13 @@ TG.ton = (function () {
 
     n = {
       summe: summe,
+      motorBus: motorBus,
       motor: motor,
       laderFilter: laderFilter, laderGain: laderGain,
       heulOsz: heulOsz, heulGain: heulGain,
       rollFilter: rollFilter, rollGain: rollGain,
       windGain: windGain,
+      regenGain: regenGain,
       ladeFilter: ladeFilter, ladeGain: ladeGain
     };
     return true;
@@ -565,6 +626,14 @@ TG.ton = (function () {
     if (ctx && aktiv) setz(n.summe.gain, laut, 0.05);
   }
 
+  function motorLautstaerke() { return motorLaut; }
+
+  function setzeMotorLautstaerke(wert) {
+    motorLaut = U.clamp(wert, 0, 1);
+    einstellungenSchreiben();
+    if (ctx) setz(n.motorBus.gain, motorLaut, 0.05);
+  }
+
   /* =============================================================
    *  Laufender Ton
    * ============================================================= */
@@ -582,12 +651,29 @@ TG.ton = (function () {
     var gang = Math.min(GAENGE - 1, Math.floor(vN * GAENGE));
     var imGang = vN * GAENGE - gang;
 
+    /* ---- Schalten ----
+     * Beim Hochschalten unter Gas geht fuer einen Moment die Last weg und die
+     * Drehzahl faellt in den naechsten Gang. Diese kleine Atempause gliedert
+     * eine Fahrt; ohne sie lief der Ton von der Hofeinfahrt bis zum Ziel in
+     * einem Strich durch.
+     */
+    if (gang > gangVorher && z.gas && !z.motorAus) schaltPause = 0.32;
+    gangVorher = gang;
+    schaltPause = Math.max(0, schaltPause - dt);
+    var schaltet = schaltPause > 0;
+
     var ziel = 0.14 + 0.70 * imGang;
-    if (z.gas) ziel += 0.13 + 0.12 * z.ladung;    // unter Last haengt er tiefer im Drehmoment
+    if (z.gas && !schaltet) ziel += 0.13 + 0.12 * z.ladung;    // unter Last haengt er tiefer im Drehmoment
     if (z.bremse && z.tempo > 0.5) ziel *= 0.82;
     if (z.motorAus) ziel = 0;
     // Hochdrehen geht schneller als abfallen.
     dreh += (ziel - dreh) * Math.min(1, dt * (ziel > dreh ? 3.4 : 1.9));
+
+    // Last folgt dem Gasfuss, aber nicht sprunghaft: Gas geben oeffnet den
+    // Klang in einer Viertelsekunde, Gas wegnehmen laesst ihn etwas langsamer
+    // zurueckfallen.
+    var lastZiel = (z.gas && !z.motorAus && !schaltet) ? 0.65 + 0.35 * z.ladung : 0;
+    last += (lastZiel - last) * Math.min(1, dt * (lastZiel > last ? 4.0 : 2.6));
 
     /* ---- Ladedruck ----
      * Der Lader haengt an der Last, nicht an der Drehzahl allein, und er
@@ -605,16 +691,23 @@ TG.ton = (function () {
      * Leerlauf bei dreh 0,14 auf 756/min und die Volllast auf 2170/min faellt.
      */
     var umin = (27 + 77 * dreh) * 20;
-    n.motor.setzen(umin, dreh, ladedruck, z.motorAus);
+    // Der Regler pendelt ein wenig um seine Solldrehzahl, im Leerlauf mehr als
+    // unter Last. Zwei Schwingungen mit ungleichen Perioden, damit es nicht
+    // selbst wieder zum Takt wird.
+    var pendel = (1 - 0.6 * last) * (0.007 * Math.sin(zeit * 2.3) + 0.004 * Math.sin(zeit * 0.71 + 1.3));
+    umin *= 1 + pendel;
+    n.motor.setzen(umin, dreh, ladedruck, z.motorAus, last);
 
     /* ---- Lader ---- */
-    setz(n.laderFilter.frequency, 1900 + 5200 * ladedruck, 0.12);
+    // Frueher bis 7 kHz hinauf -- ein Pfeifen in der Lage, in der das Ohr am
+    // empfindlichsten ist. Jetzt bleibt er unter 3,5 kHz und deutlich leiser.
+    setz(n.laderFilter.frequency, 1500 + 2000 * ladedruck, 0.12);
     setz(n.laderGain.gain,
-         z.motorAus ? 0 : KLANG.LADER * (0.008 + 0.070 * ladedruck * ladedruck), 0.12);
+         z.motorAus ? 0 : KLANG.LADER * (0.004 + 0.032 * ladedruck * ladedruck), 0.12);
 
     /* ---- Getriebe ---- */
-    setz(n.heulOsz.frequency, 300 + 1100 * vN, 0.1);
-    setz(n.heulGain.gain, z.motorAus ? 0 : 0.004 + 0.011 * vN, 0.15);
+    setz(n.heulOsz.frequency, 180 + 520 * vN, 0.1);
+    setz(n.heulGain.gain, z.motorAus ? 0 : 0.002 + 0.007 * vN, 0.15);
 
     /* ---- Untergrund ---- */
     var rau = z.untergrund === 'strasse' ? 0.55 : (z.untergrund === 'feldweg' ? 1.15 : 1.7);
@@ -623,7 +716,10 @@ TG.ton = (function () {
 
     /* ---- Wind, zwei ungleiche Schwingungen, damit es nicht pulst ---- */
     var boe = 0.5 + 0.32 * Math.sin(zeit * 0.13) + 0.18 * Math.sin(zeit * 0.047);
-    setz(n.windGain.gain, 0.014 + 0.020 * boe, 0.6);
+    setz(n.windGain.gain, (0.014 + 0.020 * boe) * (1 + 0.6 * (z.regen || 0)), 0.6);
+
+    /* ---- Regen ---- */
+    setz(n.regenGain.gain, 0.03 * (z.regen || 0), 1.5);
 
     /* ---- Ladegeraeusch ---- */
     if (ladeLaeuft) {
@@ -637,7 +733,8 @@ TG.ton = (function () {
     vogelUhr -= dt;
     if (vogelUhr <= 0) {
       vogelUhr = 7 + Math.random() * 16;
-      if (dreh < 0.5) vogel();
+      // Im Regen und im Schnee singt keiner.
+      if (dreh < 0.5 && !z.regen && !z.still) vogel();
     }
   }
 
@@ -691,6 +788,23 @@ TG.ton = (function () {
     kg.gain.setValueAtTime(0.28 * p, t);
     kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
     q.start(t); q.stop(t + 0.3);
+  }
+
+  /** Donner nach einem Blitz: tiefes Grollen, leicht verzoegert, langsam
+   *  verebbend. Leise gehalten -- es soll erschrecken, nicht droehnen. */
+  function donner() {
+    if (!ctx || !aktiv || ctx.state !== 'running') return;
+    var t = ctx.currentTime + 0.4 + Math.random() * 1.4;
+    var q = ctx.createBufferSource();
+    q.buffer = rauschPuffer(3.2);
+    var tf = filter('lowpass', 160 + Math.random() * 80, 0.8);
+    var g = verstaerker(0);
+    q.connect(tf); tf.connect(g); g.connect(n.summe);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.06, t + 1.0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 3.0);
+    q.start(t); q.stop(t + 3.2);
   }
 
   /** Kurzes Signal fuer Meldungen. art: 'gut' | 'schlecht' | 'stufe' */
@@ -786,7 +900,8 @@ TG.ton = (function () {
     start: start, schritt: schritt,
     istAn: istAn, umschalten: umschalten, setzeAn: setzeAn,
     lautstaerke: lautstaerke, setzeLautstaerke: setzeLautstaerke,
-    stoss: stoss, signal: signal, vorgang: vorgang,
+    motorLautstaerke: motorLautstaerke, setzeMotorLautstaerke: setzeMotorLautstaerke,
+    stoss: stoss, signal: signal, vorgang: vorgang, donner: donner,
     anlasser: anlasser, motorStopp: motorStopp,
     // Nur fuer werkzeug/klang.html, das Spiel fasst nichts davon an.
     KLANG: KLANG, koerperNeu: koerperNeu,
