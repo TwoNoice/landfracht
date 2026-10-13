@@ -11,6 +11,12 @@
   --gruen:#7fb04a;
   --rot:#c9553d;
   --blau:#5b8ea8;
+  /* Glasflaechen ueber der Karte: halb durchsichtig und weichgezeichnet, so
+     bleibt die Welt darunter ahnbar, ohne dass die Schrift auf ihr schwimmt. */
+  --glas:rgba(16,20,13,.72);
+  --glas-rand:rgba(255,255,255,.09);
+  --glas-schatten:0 8px 24px rgba(0,0,0,.32),0 1px 0 rgba(255,255,255,.04) inset;
+  --rund:12px;
 }
 
 *{box-sizing:border-box}
@@ -24,24 +30,31 @@ body{
 
 #spiel{position:fixed;inset:0}
 #leinwand{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* Maussteuerung: das Fadenkreuz zeigt, dass der Zeiger jetzt lenkt.
+   Die reinen Anzeigen lassen den Zeiger durch -- sonst reisst die Lenkung ab,
+   sobald er im Vorbeiziehen ueber Tacho, Minikarte oder Hinweiszeile kommt. */
+body.maus-lenkt #leinwand{cursor:crosshair}
+#tacho,#hinweis,#fortschritt,#minikarte{pointer-events:none}
 
 /* ---------- Kopfleiste ---------- */
 #kopfleiste{
   position:absolute;top:0;left:0;right:0;height:46px;
   display:flex;align-items:stretch;gap:2px;
-  background:linear-gradient(180deg,rgba(12,15,10,.94),rgba(12,15,10,.78));
-  border-bottom:1px solid var(--rand);
+  background:linear-gradient(180deg,rgba(12,15,10,.86),rgba(12,15,10,.66));
+  -webkit-backdrop-filter:blur(10px) saturate(1.15);backdrop-filter:blur(10px) saturate(1.15);
+  border-bottom:1px solid var(--glas-rand);
+  box-shadow:0 4px 18px rgba(0,0,0,.25);
   font-size:13px;z-index:20;
 }
 .kf-block{display:flex;align-items:center;gap:6px;padding:0 12px;border-right:1px solid rgba(255,255,255,.06)}
 .kf-lbl{color:var(--schrift-schwach);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-.kf-wert{font-weight:700;font-variant-numeric:tabular-nums}
+.kf-wert{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .kf-wert.klein{font-weight:600;font-size:12px;min-width:46px;text-align:right}
 .kf-block.bar .balken{width:70px}
-.balken{height:8px;background:#0d100a;border:1px solid var(--rand);border-radius:4px;overflow:hidden}
-.balken i{display:block;height:100%;width:0;background:var(--gruen);transition:width .2s linear}
-.balken i.warn{background:var(--gelb)}
-.balken i.krit{background:var(--rot)}
+.balken{height:8px;background:rgba(0,0,0,.4);border:1px solid var(--glas-rand);border-radius:999px;overflow:hidden}
+.balken i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,#6a9a3c,#93c45a);transition:width .2s linear}
+.balken i.warn{background:linear-gradient(90deg,#c9a23a,#efcf63)}
+.balken i.krit{background:linear-gradient(90deg,#a8402c,#d9644a)}
 
 .kf-block.auftrag{flex:1;min-width:0;gap:10px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;line-height:46px}
 .kf-block.auftrag .leer{color:var(--schrift-schwach)}
@@ -52,32 +65,41 @@ body{
 
 .kf-block.knoepfe{gap:4px;border-right:none;padding-right:8px}
 .kf-block.knoepfe button{
-  background:var(--panel2);color:var(--schrift);border:1px solid var(--rand);
-  border-radius:5px;padding:6px 9px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;
+  background:rgba(255,255,255,.05);color:var(--schrift);border:1px solid var(--glas-rand);
+  border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;
+  font-family:inherit;transition:background .15s,border-color .15s;
 }
-.kf-block.knoepfe button:hover{background:#31392a}
+.kf-block.knoepfe button:hover{background:rgba(255,255,255,.11);border-color:rgba(255,255,255,.16)}
 .kf-block.knoepfe button b{
-  font-size:10px;color:var(--schrift-schwach);border:1px solid var(--rand);
-  border-radius:3px;padding:0 4px;font-weight:600;
+  font-size:10px;color:var(--schrift-schwach);border:1px solid var(--glas-rand);
+  background:rgba(0,0,0,.25);border-radius:4px;padding:0 4px;font-weight:600;
 }
 
 /* ---------- Tacho ---------- */
 #tacho{
   position:absolute;left:14px;bottom:14px;z-index:15;
-  background:rgba(12,15,10,.72);border:1px solid var(--rand);border-radius:8px;
-  padding:8px 14px;display:flex;align-items:baseline;gap:12px;
+  background:var(--glas);border:1px solid var(--glas-rand);border-radius:var(--rund);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:var(--glas-schatten);
+  padding:9px 15px;display:flex;align-items:baseline;gap:12px;
 }
 #tacho .tempo{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
 #tacho .tempo small{font-size:12px;color:var(--schrift-schwach);margin-left:4px;font-weight:400}
-#tacho .gang{font-size:14px;font-weight:700;color:var(--gelb);border:1px solid var(--rand);border-radius:4px;padding:2px 7px}
+#tacho .gang{font-size:14px;font-weight:700;color:var(--gelb);border:1px solid var(--glas-rand);background:rgba(0,0,0,.25);border-radius:6px;padding:2px 8px}
 #tacho .ladung{font-size:12px;color:var(--schrift-schwach)}
 #tacho .ladung.voll{color:var(--gruen)}
+/* Zuendung. Der abgestellte Motor blinkt nicht, aber er sticht heraus --
+   sonst sucht man den Fehler beim Gaspedal. */
+#tacho .motor{font-size:11.5px;font-weight:600;border:1px solid var(--glas-rand);border-radius:999px;padding:2px 9px;white-space:nowrap}
+#tacho .motor.aus{color:var(--rot);border-color:#5a2f24}
+#tacho .motor.orgelt{color:var(--gelb);border-color:#6a5a2a}
+#tacho .motor.an{color:var(--schrift-schwach)}
 
 /* ---------- Hinweiszeile ---------- */
 #hinweis{
   position:absolute;left:50%;transform:translateX(-50%);bottom:16px;z-index:15;
-  background:rgba(12,15,10,.8);border:1px solid var(--rand);border-radius:6px;
-  padding:7px 16px;font-size:13px;max-width:60%;text-align:center;
+  background:var(--glas);border:1px solid var(--glas-rand);border-radius:16px;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:var(--glas-schatten);
+  padding:7px 18px;font-size:13px;max-width:60%;text-align:center;
   opacity:0;transition:opacity .2s;
 }
 #hinweis.an{opacity:1}
@@ -86,25 +108,46 @@ body{
 /* ---------- Ladefortschritt ---------- */
 #fortschritt{
   position:absolute;left:50%;transform:translateX(-50%);bottom:70px;z-index:16;
-  width:280px;background:rgba(12,15,10,.86);border:1px solid var(--rand);border-radius:8px;padding:10px 14px;
+  width:280px;background:var(--glas);border:1px solid var(--glas-rand);border-radius:var(--rund);padding:10px 14px;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:var(--glas-schatten);
 }
 #fortschritt.aus{display:none}
 #fortschritt .titel{font-size:13px;margin-bottom:6px;text-align:center}
 #fortschritt .balken{height:12px}
-#fortschritt .balken i{background:var(--gelb);transition:none}
+#fortschritt .balken i{background:linear-gradient(90deg,#c9a23a,#efcf63);transition:none}
 
 /* ---------- Minikarte ---------- */
 #minikarte{
   position:absolute;right:14px;bottom:14px;z-index:15;
-  width:230px;height:230px;border:1px solid var(--rand);border-radius:8px;
-  background:rgba(12,15,10,.7);
+  width:230px;height:230px;border:1px solid var(--glas-rand);border-radius:var(--rund);
+  background:rgba(12,15,10,.7);box-shadow:var(--glas-schatten);
 }
+
+/* ---------- Kartenbildschirm ---------- */
+/* Die Lade wird fuer die Karte breiter. Auf schmalen Geraeten nimmt sie
+   ohnehin die ganze Breite ein, dort aendert die Klasse nichts. */
+#panel.breit{width:min(780px,94vw)}
+#kartenblatt{
+  display:block;width:100%;aspect-ratio:1/1;
+  border:1px solid var(--glas-rand);border-radius:var(--rund);background:#2b3524;
+  cursor:grab;touch-action:none;
+}
+#kartenblatt.zieht{cursor:grabbing}
+.karten-leiste{display:flex;align-items:center;gap:8px;margin-top:10px}
+.karten-mass{margin-left:auto;color:var(--schrift-schwach);font-size:12px;font-variant-numeric:tabular-nums}
+.karten-legende{
+  display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:12px;
+  color:var(--schrift-schwach);font-size:12px;
+}
+.karten-legende i{display:inline-block;width:16px;height:4px;border-radius:2px;vertical-align:middle;margin-right:6px}
+.karten-hinweis{margin-top:10px;color:var(--schrift-schwach);font-size:12px;line-height:1.5}
 
 /* ---------- Meldungen ---------- */
 #meldungen{position:absolute;top:58px;left:50%;transform:translateX(-50%);z-index:30;display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
 .meldung{
-  background:rgba(20,25,16,.95);border:1px solid var(--rand);border-left:3px solid var(--gelb);
-  border-radius:5px;padding:9px 16px;font-size:13px;max-width:520px;
+  background:rgba(20,25,16,.86);border:1px solid var(--glas-rand);border-left:3px solid var(--gelb);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:var(--glas-schatten);
+  border-radius:10px;padding:9px 16px;font-size:13px;max-width:520px;
   animation:einblenden .25s ease-out;
 }
 .meldung.gut{border-left-color:var(--gruen)}
@@ -115,18 +158,21 @@ body{
 /* ---------- Seitenlade ---------- */
 #panel{
   position:absolute;top:46px;right:0;bottom:0;width:440px;z-index:25;
-  background:rgba(22,27,18,.97);border-left:1px solid var(--rand);
+  background:rgba(20,25,16,.9);border-left:1px solid var(--glas-rand);
+  -webkit-backdrop-filter:blur(14px) saturate(1.1);backdrop-filter:blur(14px) saturate(1.1);
+  box-shadow:-12px 0 32px rgba(0,0,0,.3);
   display:flex;flex-direction:column;
-  transition:transform .18s ease-out;
+  transition:transform .22s cubic-bezier(.2,.8,.2,1);
 }
 #panel.zu{transform:translateX(100%);pointer-events:none}
 #panel header{
   display:flex;align-items:center;justify-content:space-between;
-  padding:12px 16px;border-bottom:1px solid var(--rand);flex:0 0 auto;
+  padding:12px 16px;border-bottom:1px solid var(--glas-rand);flex:0 0 auto;
 }
 #panel header h2{margin:0;font-size:16px;font-weight:600;letter-spacing:.02em}
-#panel-zu{background:none;border:none;color:var(--schrift-schwach);font-size:18px;cursor:pointer;padding:2px 6px}
-#panel-zu:hover{color:var(--schrift)}
+#panel-zu{background:none;border:none;color:var(--schrift-schwach);font-size:16px;cursor:pointer;
+  width:30px;height:30px;border-radius:50%;transition:background .15s,color .15s}
+#panel-zu:hover{color:var(--schrift);background:rgba(255,255,255,.08)}
 #panel-inhalt{overflow-y:auto;padding:14px 16px 40px;flex:1 1 auto;font-size:13px;line-height:1.45}
 
 /* Panel-Bausteine */
@@ -138,9 +184,12 @@ body{
 .ueberschrift:first-child{margin-top:0}
 
 .karte{
-  background:var(--panel);border:1px solid var(--rand);border-radius:7px;
-  padding:11px 13px;margin-bottom:9px;
+  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0)),var(--panel);
+  border:1px solid var(--rand);border-radius:10px;
+  padding:12px 14px;margin-bottom:10px;
+  transition:border-color .15s;
 }
+.karte:hover{border-color:#4a5740}
 .karte.angenommen{border-color:#5d7a3c;background:#1f2a17}
 .karte.gesperrt{opacity:.5}
 .karte .kopf{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px}
@@ -152,29 +201,31 @@ body{
 .karte .zeilen span b{color:var(--schrift);font-weight:600;font-variant-numeric:tabular-nums}
 .karte .knopfleiste{display:flex;gap:7px;flex-wrap:wrap}
 .marke{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;
-  border:1px solid var(--rand);border-radius:3px;padding:1px 5px;color:var(--schrift-schwach)}
+  border:1px solid var(--rand);border-radius:999px;padding:1px 7px;color:var(--schrift-schwach)}
 .marke.schlecht{border-color:#7a3a2c;color:#d98874}
 .marke.gut{border-color:#5d7a3c;color:#a9cc7d}
 .marke.eilig{border-color:#8a7325;color:var(--gelb)}
 
 button.tat{
   background:var(--panel2);color:var(--schrift);border:1px solid var(--rand);
-  border-radius:5px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-weight:600;
+  border-radius:8px;padding:7px 14px;font-size:12.5px;cursor:pointer;font-weight:600;
+  font-family:inherit;transition:background .15s,border-color .15s,transform .1s;
 }
 button.tat:hover:not(:disabled){background:#374029;border-color:#556b40}
-button.tat.haupt{background:#4b6b2c;border-color:#638a3a}
-button.tat.haupt:hover:not(:disabled){background:#587f33}
+button.tat:active:not(:disabled){transform:translateY(1px)}
+button.tat.haupt{background:linear-gradient(180deg,#58803a,#4b6b2c);border-color:#638a3a;box-shadow:0 2px 8px rgba(75,107,44,.35)}
+button.tat.haupt:hover:not(:disabled){background:linear-gradient(180deg,#649040,#587f33)}
 button.tat.warn{border-color:#7a3a2c;color:#e0a493}
 button.tat:disabled{opacity:.4;cursor:not-allowed}
 
 .sortierung{display:flex;gap:6px;margin-bottom:12px;align-items:center;font-size:12px}
 .sortierung .k{color:var(--schrift-schwach)}
 .sortierung button{background:none;border:1px solid var(--rand);color:var(--schrift-schwach);
-  border-radius:4px;padding:4px 9px;font-size:12px;cursor:pointer}
+  border-radius:999px;padding:4px 11px;font-size:12px;cursor:pointer;font-family:inherit}
 .sortierung button.aktiv{background:var(--panel2);color:var(--schrift);border-color:#556b40}
 
 .hinweisbox{background:#20281a;border:1px solid var(--rand);border-left:3px solid var(--gelb);
-  border-radius:5px;padding:10px 13px;margin-bottom:14px;color:var(--schrift-schwach);font-size:12.5px}
+  border-radius:10px;padding:10px 13px;margin-bottom:14px;color:var(--schrift-schwach);font-size:12.5px}
 .hinweisbox b{color:var(--schrift)}
 
 table.werte{width:100%;border-collapse:collapse;font-size:12.5px;margin:4px 0 10px}
@@ -193,9 +244,34 @@ input[type=range]{width:100%;accent-color:#7fb04a}
 #touch .tp{position:absolute;bottom:82px;display:flex;gap:12px;pointer-events:auto}
 #touch .tp.links{left:14px}
 #touch .tp.rechts{right:14px}
+/* Ueber dem rechten Pad, wo der Daumen ohnehin hinkommt. */
+#touch .tp.zuendung{right:14px;bottom:158px}
+#touch .tp.zuendung button{width:auto;padding:0 16px;height:44px;border-radius:22px;font-size:13px;font-weight:600}
 #touch button{
   width:64px;height:64px;border-radius:50%;font-size:22px;
-  background:rgba(30,36,24,.75);border:1px solid var(--rand);color:var(--schrift);
+  background:var(--glas);border:1px solid var(--glas-rand);color:var(--schrift);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:var(--glas-schatten);
+}
+
+/* Mittlere Breite: die Tastenkuerzel an den Knoepfen geben den Platz her,
+   bevor Geld und Ruf in der Kopfleiste umbrechen muessen. */
+@media (max-width:1180px){
+  .kf-block{padding:0 9px}
+  .kf-block.bar .balken{width:52px}
+  .kf-block.knoepfe button b{display:none}
+}
+/* Darunter fallen die Beschriftungen der beiden Balken weg; welcher Balken
+   was ist, sagt der Wert daneben (Liter, Prozent). */
+@media (max-width:1040px){
+  .kf-block.bar .kf-lbl{display:none}
+  .kf-block.knoepfe button{padding:6px 8px}
+}
+/* Noch enger: auch Geld, Ruf und Zeit verlieren ihr Etikett. "8.000 €" und
+   "Tag 3, 14:20" sagen selbst, was sie sind. */
+@media (min-width:821px) and (max-width:960px){
+  .kf-lbl{display:none}
+  .kf-block{padding:0 7px}
+  .kf-block.knoepfe button{padding:6px 7px}
 }
 
 /* ---------- Kleine Bildschirme ---------- */
@@ -205,6 +281,9 @@ input[type=range]{width:100%;accent-color:#7fb04a}
   .kf-block.auftrag{order:10;flex-basis:100%;line-height:26px;border-right:none}
   .kf-block.knoepfe button b{display:none}
   #panel{width:100%;top:0}
+  /* Auf schmalen Geraeten nimmt auch die Karte die ganze Breite ein, sonst
+     stuende sie als einzige Lade schmaler da als die anderen. */
+  #panel.breit{width:100%}
   #minikarte{width:130px;height:130px}
   #tacho{padding:6px 10px}
   #tacho .tempo{font-size:22px}
@@ -272,6 +351,34 @@ body.titel-an #touch{display:none}
   font-size:12.5px;line-height:1.5;color:var(--schrift-schwach);text-align:left;
 }
 
+/* ---------- Umschalter Tastatur / Maus ----------
+   Steht im Titelbild und noch einmal im Buch; beide tragen data-steuerart
+   und werden von main.js gemeinsam gepflegt. */
+.wahl{
+  margin:18px auto 2px;
+  display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;
+}
+.wahl .wahl-lbl{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--schrift-schwach)}
+.wahl-knoepfe{display:inline-flex;border:1px solid var(--rand);border-radius:6px;overflow:hidden}
+.wahl-knoepfe button{
+  background:var(--panel);color:var(--schrift-schwach);border:none;
+  padding:9px 22px;font-size:13.5px;font-weight:600;cursor:pointer;font-family:inherit;
+}
+.wahl-knoepfe button + button{border-left:1px solid var(--rand)}
+.wahl-knoepfe button:hover{background:var(--panel2);color:var(--schrift)}
+.wahl-knoepfe button.aktiv{background:#4b6b2c;color:#f2f5e8}
+.wahl-knoepfe button.aktiv:hover{background:#587f33}
+/* Im Titelbild traegt jeder Knopf schon eine eigene Form -- die id gewinnt
+   sonst gegen die Klasse und sprengt die Leiste auseinander. */
+#titel .wahl-knoepfe button{
+  background:var(--panel);border:none;border-radius:0;
+  padding:9px 22px;font-size:13.5px;color:var(--schrift-schwach);
+}
+#titel .wahl-knoepfe button + button{border-left:1px solid var(--rand)}
+#titel .wahl-knoepfe button:hover{background:var(--panel2);color:var(--schrift);border-color:var(--rand)}
+#titel .wahl-knoepfe button.aktiv{background:#4b6b2c;color:#f2f5e8}
+#titel .wahl-knoepfe button.aktiv:hover{background:#587f33}
+
 #titel .knopfreihe{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:24px 0 16px}
 #titel button{
   background:var(--panel2);color:var(--schrift);border:1px solid var(--rand);
@@ -293,6 +400,16 @@ body.titel-an #touch{display:none}
   #titel button.haupt{width:100%}
 }
 
+/* Der uebliche Laptopschirm: mit dem Steuerungsschalter und der Motortaste
+   ist die Tafel gewachsen und stiess unten an. Etwas enger gesetzt, dann
+   steht wieder alles ohne Rollen im Bild. */
+@media (max-height:800px){
+  #titel{padding:16px 22px}
+  #titel .tasten{margin:16px 0 12px}
+  #titel .knopfreihe{margin:16px 0 10px}
+  #titel .unter{margin-bottom:2px}
+}
+
 /* Handy im Querformat: wenig Hoehe, also enger setzen. Der Rest scrollt. */
 @media (max-height:560px){
   #titel{align-items:flex-start;padding:20px 18px}
@@ -301,4 +418,37 @@ body.titel-an #touch{display:none}
   #titel .tasten{margin:16px 0 12px;gap:5px 18px}
   #titel .knopfreihe{margin:16px 0 10px}
   #titel .fuss{display:none}
+}
+
+/* ---------- Prüfstand (Entwicklermodus) ----------
+   Sichtbar anders als das Spiel: wer mit unerschöpflicher Kasse unterwegs
+   ist, soll das an jeder Ecke des Bildes sehen und nicht erst am Kontostand
+   merken, dass er nicht mehr spielt. */
+#kf-pruefstand.aus{display:none}
+.kf-block.knoepfe button.pruef{border-color:#7a5ea0;color:#d9c8f2}
+.kf-block.knoepfe button.pruef:hover{background:#3a2f4a}
+
+body.pruefstand #spiel::after{
+  content:"";position:absolute;inset:0;z-index:40;pointer-events:none;
+  border:2px solid rgba(160,110,220,.5);
+}
+
+#diagnose{
+  position:absolute;top:58px;left:14px;z-index:20;pointer-events:none;
+  display:grid;grid-template-columns:auto auto;gap:1px 10px;align-content:start;
+  background:rgba(16,20,12,.82);border:1px solid #5b4a78;border-radius:6px;
+  padding:8px 11px;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  font-size:11.5px;line-height:1.5;font-variant-numeric:tabular-nums;
+  max-width:44vw;
+}
+#diagnose.aus{display:none}
+#diagnose .k{color:var(--schrift-schwach)}
+#diagnose .v{color:var(--schrift);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Die Schalter im Prüfstand: Zustand steht im Knopf, nicht daneben. */
+.karte.pruef .kopf{align-items:center}
+.karte.pruef .kopf button.tat{min-width:52px;text-align:center;padding:4px 9px}
+
+@media (max-width:760px){
+  #diagnose{display:none}
 }

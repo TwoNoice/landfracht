@@ -60,10 +60,13 @@
     <div class="kf-block auftrag" id="kf-auftrag"><span class="leer">Kein Auftrag angenommen</span></div>
 
     <div class="kf-block knoepfe">
+      <button data-panel="karte">Karte<b>N</b></button>
       <button data-panel="boerse">Börse<b>B</b></button>
       <button data-panel="hof">Hof<b>H</b></button>
       <button data-panel="haendler">Händler<b>K</b></button>
       <button data-panel="buch">Buch<b>U</b></button>
+      <!-- Nur sichtbar, solange der Entwicklermodus laeuft (Strg+Alt+E). -->
+      <button data-panel="pruefstand" id="kf-pruefstand" class="aus pruef">Prüfstand<b>P</b></button>
     </div>
   </div>
 
@@ -71,8 +74,12 @@
   <div id="tacho">
     <div class="tempo"><span id="t-kmh">0</span><small>km/h</small></div>
     <div class="gang" id="t-gang">N</div>
+    <div class="motor aus" id="t-motor">Motor aus</div>
     <div class="ladung" id="t-ladung">leer</div>
   </div>
+
+  <!-- Zahlenfeld des Pruefstands -->
+  <div id="diagnose" class="aus"></div>
 
   <!-- Kontexthinweis -->
   <div id="hinweis"></div>
@@ -100,6 +107,8 @@
   <div id="touch" class="aus">
     <div class="tp links"><button data-taste="ArrowLeft">◀</button><button data-taste="ArrowRight">▶</button></div>
     <div class="tp rechts"><button data-taste="ArrowDown">▼</button><button data-taste="ArrowUp">▲</button></div>
+    <!-- Ohne Tastatur gibt es kein I. Ohne Zuendung faehrt nichts. -->
+    <div class="tp zuendung"><button id="touch-motor" type="button">Motor</button></div>
   </div>
 
   <!--
@@ -115,9 +124,21 @@
         zur Mühle, die Ballen zum Nachbarhof, die Maschine zum Händler — und schau,
         dass am Abend mehr in der Kasse liegt als am Morgen.</p>
 
+      <!-- Steuerung waehlen, bevor der erste Meter gefahren wird.
+           Beide Knoepfe tragen data-steuerart; main.js haengt sich daran. -->
+      <div class="wahl">
+        <span class="wahl-lbl">Steuerung</span>
+        <div class="wahl-knoepfe">
+          <button type="button" data-steuerart="tasten">Tastatur</button>
+          <button type="button" data-steuerart="maus">Maus</button>
+        </div>
+      </div>
+
       <div class="tasten">
+        <div><b>I</b><span>Motor anlassen und abstellen</span></div>
         <div><b>↑&nbsp;↓&nbsp;←&nbsp;→</b><span>Gas, bremsen, lenken</span></div>
         <div><b>Leertaste</b><span>Handbremse</span></div>
+        <div><b>L</b><span>Tastatur und Maus umschalten</span></div>
         <div><b>E</b><span>Tanken, Hof, Händler</span></div>
         <div><b>B</b><span>Auftragsbörse</span></div>
         <div><b>H</b><span>Hof: an- und abkoppeln</span></div>
@@ -126,8 +147,9 @@
         <div><b>M</b><span>Ton an und aus</span></div>
       </div>
 
-      <p class="regel">Geladen und abgeladen wird von allein: mit dem Anhänger in
-        die markierte Zone fahren und anhalten. Enge Zonen wollen das Gespann gerade.</p>
+      <p class="regel">Bei der Maus lenkt der Traktor zum Zeiger, links ist Gas, rechts Bremse und
+        Rückwärtsgang — die Tasten laufen daneben weiter. Der Schlepper steht kalt da, erst mit
+        <b>I</b> anlassen. Geladen wird von allein: in die markierte Zone fahren und anhalten.</p>
 
       <div class="knopfreihe">
         <button id="t-los" class="haupt">Spiel starten</button>
@@ -149,6 +171,7 @@
 <script src="js/game.js"></script>
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/entwickler.js"></script>
 <script src="js/sound.js"></script>
 <script src="js/main.js"></script>
 </body>

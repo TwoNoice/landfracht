@@ -47,7 +47,9 @@ TG.Gespann = (function () {
 
   /**
    * Ein Simulationsschritt.
-   * eingabe : {gas, bremse, links, rechts, handbremse}
+   * eingabe : {gas, bremse, links, rechts, handbremse, lenkZiel}
+   *           lenkZiel ist der stufenlose Sollwert der Maussteuerung
+   *           (-1 ganz links .. 1 ganz rechts) und ersetzt links/rechts.
    * technik : {ps, achsstand, vmaxKmh, masseGesamt, masseTraktor, zustand,
    *            anhaengerB, halt, untergrund}
    */
@@ -59,13 +61,27 @@ TG.Gespann = (function () {
     // Gespann bei jeder Antippbewegung aus der Spur, und der Anhänger
     // knickt schon in einer gewöhnlichen Straßenkurve ein. Im Schritttempo
     // bleibt der volle Einschlag zum Rangieren erhalten.
+    //
+    // Die Kurve gehoert zum Tempo, nicht zur Karte: bei gleicher Geschwindigkeit
+    // liefert sie denselben Einschlag wie vor der Stauchung. Weil die Spitzen
+    // gefallen sind (67 statt 90 km/h), bleibt am oberen Ende jetzt knapp ein
+    // Drittel von LENK_MAX statt gut einem Viertel -- auf der engeren Karte mit
+    // ihren dichteren Kurven ist das gewollt. Voller Einschlag im Schritttempo
+    // bleibt unberuehrt. Wer die Spitzen wieder anhebt, muss sie versteilern.
     var tempo = Math.abs(this.v);
-    var maxEin = LENK_MAX * (0.30 + 0.70 / (1 + tempo / 6.0));
-    var ziel = 0;
-    if (eingabe.links) ziel -= maxEin;
-    if (eingabe.rechts) ziel += maxEin;
+    var maxEin = LENK_MAX * (0.16 + 0.84 / (1 + tempo / 4.2));
 
-    var rate = (ziel === 0 ? LENK_RUECK : LENK_RATE) * (technik.halt || 1);
+    // Maussteuerung liefert einen stufenlosen Sollwert -1 .. 1, die Tastatur
+    // nur ganz links oder ganz rechts. Beides landet in derselben Groesse.
+    var ziel = 0;
+    if (typeof eingabe.lenkZiel === 'number') {
+      ziel = maxEin * U.clamp(eingabe.lenkZiel, -1, 1);
+    } else {
+      if (eingabe.links) ziel -= maxEin;
+      if (eingabe.rechts) ziel += maxEin;
+    }
+
+    var rate = (Math.abs(ziel) < 0.004 ? LENK_RUECK : LENK_RATE) * (technik.halt || 1);
     if (this.lenk < ziel) this.lenk = Math.min(ziel, this.lenk + rate * dt);
     else if (this.lenk > ziel) this.lenk = Math.max(ziel, this.lenk - rate * dt);
     this.lenk = U.clamp(this.lenk, -maxEin, maxEin);
@@ -74,29 +90,41 @@ TG.Gespann = (function () {
     var zust = U.clamp(technik.zustand, 0, 100) / 100;
     var zustFaktor = 0.55 + 0.45 * zust;
 
-    // Verschleiss und Ladung kosten Spitze, aber sparsam. Beide Faktoren
-    // multiplizieren sich, und frueher waren es 30 % plus 26 %: der Hoftraktor
-    // kam mit voller Mulde auf 19 km/h. Die Auftragsfenster rechnen mit
-    // 24 km/h (jobs.fahrzeit), damit war jede volle Fahrt von vornherein
-    // knapp. Die Last soll sich in der Beschleunigung zeigen, nicht in der
-    // Endgeschwindigkeit.
-    var vmax = (technik.vmaxKmh / 3.6) * u.speed * (0.86 + 0.14 * zust);
+    // Verschleiss und Ladung kosten Spitze, aber nur noch wenig. Beide
+    // Faktoren multiplizieren sich, deshalb ist der schlimmste Fall --
+    // durchgefahrener Traktor mit vollem Anhaenger -- 0,92 * 0,95 = 0,874.
+    // Der Starttraktor (40 km/h) laeuft dann noch 35 km/h. Auf der gestauchten
+    // Karte ist das kein Problem mehr: die typische Fuhre misst gut 400 m und
+    // dauert damit unter einer Minute. Die Last soll sich in der Beschleunigung
+    // zeigen, nicht in der Endgeschwindigkeit.
+    var vmax = (technik.vmaxKmh / 3.6) * u.speed * (0.92 + 0.08 * zust);
     var ladungsAnteil = technik.ladungsAnteil || 0;
-    vmax *= (0.93 + 0.07 * (1 - ladungsAnteil));
-    var vmaxRueck = Math.min(vmax, 13 / 3.6);
+    vmax *= (0.95 + 0.05 * (1 - ladungsAnteil));
+    // Rueckwaerts bleibt Rangiertempo, unabhaengig von der Spitze.
+    var vmaxRueck = Math.min(vmax, 14 / 3.6);
 
     // Beschleunigung aus Leistung je Tonne. Der Anhaenger zaehlt nur zum Teil
     // mit: rein linear gerechnet kroch das schwer beladene Gespann mit knapp
     // 0,4 m/s^2 an, das sind ueber 20 s bis zur Reisegeschwindigkeit. Der
     // Getriebeuebersetzung entspricht das ohnehin nicht.
+    //
+    // 0,20 je PS bleibt, obwohl die Spitzen gefallen sind: auf der engeren
+    // Karte sind die Geraden kurz, und ein zaeh anfahrendes Gespann kaeme dort
+    // gar nicht mehr auf Tempo. Der Hoftraktor mit voller Mulde braucht damit
+    // nachgemessen achteinhalb Sekunden auf seine 37 km/h, leer viereinhalb.
+    // Das ist der Grund, warum er ueber das ganze Netz nur 28 km/h schafft,
+    // obwohl er 38 koennte -- PLANTEMPO in jobs.js rechnet mit dem Schnitt,
+    // nicht mit der Spitze.
     var masseAnh = Math.max(0, technik.masseGesamt - technik.masseTraktor);
     var zugMasse = technik.masseTraktor + masseAnh * 0.55;
-    var aAntrieb = (technik.ps * 0.15 * zustFaktor) / Math.max(1, zugMasse);
+    var aAntrieb = (technik.ps * 0.20 * zustFaktor) / Math.max(1, zugMasse);
     aAntrieb *= u.halt;
 
-    // Bremsen: der Traktor bremst, der Anhaenger schiebt
+    // Bremsen: der Traktor bremst, der Anhaenger schiebt. Etwas kraeftiger als
+    // frueher (4,2), sonst wird der Bremsweg aus Reisegeschwindigkeit laenger,
+    // als die Vorausschau der Kamera reicht.
     var anteilTraktor = technik.masseTraktor / Math.max(0.1, technik.masseGesamt);
-    var aBremse = 4.2 * u.halt * (0.5 + 0.5 * anteilTraktor) * (0.7 + 0.3 * zust);
+    var aBremse = 5.0 * u.halt * (0.5 + 0.5 * anteilTraktor) * (0.7 + 0.3 * zust);
 
     // Rollwiderstand
     var aRoll = (0.42 + 0.0038 * tempo * tempo) * u.roll;
@@ -162,7 +190,12 @@ TG.Gespann = (function () {
     }
 
     // ---- Kartenrand und Gebaeude --------------------------------
-    var rand = 20, g = TG.welt.GROESSE;
+    // Der Zaun gehoert zur Karte, nicht zum Gespann: auf der alten, viermal
+    // weiteren Karte waren 20 m ein Bankett, hier waeren sie fast drei Prozent
+    // der Kartenbreite -- und die beiden Hauptachsen laufen bis an den Rand,
+    // waeren auf ihren letzten Metern also gesperrt. Acht Meter sind eine
+    // Gespannlaenge und tun dasselbe.
+    var rand = 8, g = TG.welt.GROESSE;
     if (this.x < rand || this.x > g - rand || this.y < rand || this.y > g - rand) {
       this.x = U.clamp(this.x, rand, g - rand);
       this.y = U.clamp(this.y, rand, g - rand);

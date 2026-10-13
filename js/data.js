@@ -77,25 +77,28 @@ TG.data = (function () {
    * achsstand Radstand in Metern (bestimmt den Wendekreis)
    * ------------------------------------------------------------- */
   var traktoren = [
-    // vmax 32 statt 28: mit Anhaenger und etwas Verschleiss blieb der
-    // Starttraktor sonst unter dem Tempo, mit dem jobs.fahrzeit die
-    // Zeitfenster kalkuliert.
-    { id: 'hoftraktor', name: 'Alter Hoftraktor', ps: 60, vmax: 32, verbrauch: 1.35,
+    // Die Spitzen gehoeren zur Kartengroesse. Auf der alten, viermal so weiten
+    // Karte war 45 km/h die Untergrenze, unter der sich jede Fuhre zaeh anfuehlte
+    // -- bei 1,8 km Schnittstrecke. Seit die typische Fuhre gut 400 m lang ist,
+    // dauert sie auch mit 40 km/h keine Minute, und schneller waere sie nur noch
+    // ein Wimpernschlag. Beladen und verschlissen (physics: 0,92 * 0,95) bleiben
+    // dem Hoftraktor 35 km/h. Wer hieran dreht, zieht PLANTEMPO in jobs.js mit.
+    { id: 'hoftraktor', name: 'Alter Hoftraktor', ps: 60, vmax: 40, verbrauch: 1.35,
       masse: 3.2, achsstand: 2.35, laenge: 4.2, breite: 1.95, tank: 220,
       preis: 0, neuwert: 9000, farbe: '#9c4a34', dach: '#7a3826',
       text: 'Steht seit Jahren auf dem Hof. Läuft, mehr nicht.' },
 
-    { id: 'allrounder', name: 'Allrounder 110', ps: 110, vmax: 40, verbrauch: 1.0,
+    { id: 'allrounder', name: 'Allrounder 110', ps: 110, vmax: 48, verbrauch: 1.0,
       masse: 4.6, achsstand: 2.55, laenge: 4.7, breite: 2.1, tank: 300,
       preis: 45000, neuwert: 45000, farbe: '#3f7a3a', dach: '#2f5c2b',
       text: 'Der vernünftige Schritt: schneller, sparsamer, zieht ordentlich.' },
 
-    { id: 'grosstraktor', name: 'Großtraktor 200', ps: 200, vmax: 50, verbrauch: 0.9,
+    { id: 'grosstraktor', name: 'Großtraktor 200', ps: 200, vmax: 57, verbrauch: 0.9,
       masse: 7.0, achsstand: 2.95, laenge: 5.4, breite: 2.45, tank: 380,
       preis: 140000, neuwert: 140000, farbe: '#2f5f86', dach: '#24486a',
       text: 'Zieht schwere Anhänger, ohne ins Schwitzen zu kommen.' },
 
-    { id: 'strassenschlepper', name: 'Straßenschlepper 300', ps: 300, vmax: 65, verbrauch: 0.78,
+    { id: 'strassenschlepper', name: 'Straßenschlepper 300', ps: 300, vmax: 67, verbrauch: 0.78,
       masse: 8.5, achsstand: 3.15, laenge: 5.9, breite: 2.55, tank: 460,
       preis: 320000, neuwert: 320000, farbe: '#8a7a2c', dach: '#6b5e22',
       text: 'Für lange Wege. Auf dem Acker ist er zu schade.' }

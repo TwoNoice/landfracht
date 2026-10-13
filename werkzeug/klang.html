@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Landfracht — Motor einstellen</title>
+<style>
+  body { background:#20242a; color:#e6e2d8; font:14px/1.5 system-ui, sans-serif;
+         margin:0; padding:20px 24px 60px; }
+  h1 { font-size:19px; margin:0 0 4px; font-weight:600; }
+  p.hin { color:#9aa3ae; margin:0 0 18px; max-width:60em; }
+  fieldset { border:1px solid #3a4149; border-radius:6px; margin:0 0 16px; padding:12px 16px 16px; }
+  legend { color:#c8b273; padding:0 6px; font-weight:600; }
+  .reihe { display:flex; align-items:center; gap:10px; margin:5px 0; }
+  .reihe label { width:15em; flex:none; }
+  .reihe input[type=range] { flex:1; max-width:420px; }
+  .reihe output { width:6em; flex:none; text-align:right;
+                  font-family:ui-monospace, Consolas, monospace; color:#c8b273; }
+  .mode { display:flex; align-items:center; gap:8px; margin:4px 0;
+          border-bottom:1px solid #2c323a; padding-bottom:4px; }
+  .mode .nam { width:11em; flex:none; color:#9aa3ae; }
+  .mode input[type=range] { width:140px; }
+  .mode output { width:5em; text-align:right;
+                 font-family:ui-monospace, Consolas, monospace; color:#c8b273; }
+  button { background:#39424c; color:#e6e2d8; border:1px solid #4d5964;
+           border-radius:5px; padding:7px 14px; font:inherit; cursor:pointer; }
+  button:hover { background:#454f5a; }
+  button.gross { font-size:16px; padding:11px 22px; }
+  textarea { width:100%; height:230px; background:#171a1f; color:#c8d0d8;
+             border:1px solid #3a4149; border-radius:5px; padding:10px;
+             font-family:ui-monospace, Consolas, monospace; font-size:12px; }
+  .neu { color:#d68b6a; }
+</style>
+</head>
+<body>
+
+<h1>Motor einstellen</h1>
+<p class="hin">
+  Nicht Teil des Spiels. Fahrzustand links einstellen, hören, schrauben, am Ende
+  unten die Werte abholen und in <code>KLANG</code> oben in
+  <code>js/sound.js</code> übernehmen. Werte mit <span class="neu">diesem
+  Anstrich</span> stecken im vorberechneten Puffer und wirken erst nach
+  „Puffer neu berechnen“.
+</p>
+
+<p><button id="an" class="gross">Ton einschalten</button>
+   <span id="lage" style="margin-left:14px; color:#9aa3ae;"></span></p>
+
+<fieldset>
+  <legend>Ausgabe</legend>
+  <div class="reihe">
+    <label for="laut">Lautstärke</label>
+    <input type="range" id="laut" min="0" max="1" step="0.02">
+    <output id="o_laut"></output>
+  </div>
+  <p style="color:#9aa3ae; margin:6px 0 0; max-width:60em;">
+    Derselbe Regler wie im Spiel — er liegt unter <code>landfracht_ton</code>
+    und gilt dort mit. Nur zum Hören, er wandert <em>nicht</em> nach
+    <code>KLANG</code>. Wie laut der Motor gegenüber Wind, Rollen und Lader
+    steht, ist der <em>Gesamtpegel</em> weiter unten.
+  </p>
+</fieldset>
+
+<fieldset>
+  <legend>Fahrzustand</legend>
+  <div class="reihe">
+    <label for="tempo">Tempo</label>
+    <input type="range" id="tempo" min="0" max="6.7" step="0.05" value="0">
+    <output id="o_tempo"></output>
+  </div>
+  <div class="reihe">
+    <label for="ladung">Ladung</label>
+    <input type="range" id="ladung" min="0" max="1" step="0.05" value="0">
+    <output id="o_ladung"></output>
+  </div>
+  <div class="reihe">
+    <label><input type="checkbox" id="gas"> Gas</label>
+    <label><input type="checkbox" id="bremse"> Bremse</label>
+    <label><input type="checkbox" id="motorAus"> Motor aus</label>
+  </div>
+  <div class="reihe">
+    <label for="grund">Untergrund</label>
+    <select id="grund">
+      <option value="strasse">Straße</option>
+      <option value="feldweg">Feldweg</option>
+      <option value="acker">Acker</option>
+    </select>
+  </div>
+</fieldset>
+
+<fieldset id="probenKasten" style="display:none">
+  <legend>Aufnahmen</legend>
+  <div id="probenLage" style="color:#9aa3ae; margin-bottom:8px;"></div>
+  <div id="proben"></div>
+  <div class="reihe">
+    <label for="PROBEN_PEGEL">Gesamtpegel</label>
+    <input type="range" id="PROBEN_PEGEL" min="0" max="3" step="0.02">
+    <output id="o_PROBEN_PEGEL"></output>
+  </div>
+  <div class="reihe">
+    <label for="PROBEN_HOCHPASS">Hochpass (Hz)</label>
+    <input type="range" id="PROBEN_HOCHPASS" min="20" max="400" step="5">
+    <output id="o_PROBEN_HOCHPASS"></output>
+  </div>
+  <div class="reihe">
+    <label for="LADER">Lader dazu</label>
+    <input type="range" id="LADER" min="0" max="1.5" step="0.02">
+    <output id="o_LADER"></output>
+  </div>
+  <p style="color:#9aa3ae; margin:6px 0 0; max-width:60em;">
+    In einer echten Aufnahme steckt der Lader meist schon drin — dann gehört
+    <em>Lader dazu</em> weit herunter, sonst pfeift es doppelt. Die
+    Bezugsdrehzahlen sind die Werte, die du beim nächsten Aufruf von
+    <code>klang_einbetten.py</code> hinter die Dateinamen schreibst.
+  </p>
+</fieldset>
+
+<fieldset id="synthKasten">
+  <legend>Körper — Resonanzen</legend>
+  <div id="moden"></div>
+</fieldset>
+
+<fieldset id="synthPegel">
+  <legend>Pegel und Schnitt</legend>
+  <div class="reihe">
+    <label for="MEISTER">Gesamtpegel</label>
+    <input type="range" id="MEISTER" min="0" max="4" step="0.05">
+    <output id="o_MEISTER"></output>
+  </div>
+  <div class="reihe">
+    <label for="HOCHPASS">Hochpass (Hz)</label>
+    <input type="range" id="HOCHPASS" min="40" max="400" step="5">
+    <output id="o_HOCHPASS"></output>
+  </div>
+</fieldset>
+
+<fieldset id="synthAnregung">
+  <legend class="neu">Anregung — braucht Neuberechnung</legend>
+  <div class="reihe">
+    <label for="BRENN_ANTEIL">Brenndauer</label>
+    <input type="range" id="BRENN_ANTEIL" min="0.05" max="0.6" step="0.01">
+    <output id="o_BRENN_ANTEIL"></output>
+  </div>
+  <div class="reihe">
+    <label for="BERG">Druckberg / Rauheit</label>
+    <input type="range" id="BERG" min="0" max="1" step="0.01">
+    <output id="o_BERG"></output>
+  </div>
+  <div class="reihe">
+    <label for="NAGELN">Nageln</label>
+    <input type="range" id="NAGELN" min="0" max="1" step="0.01">
+    <output id="o_NAGELN"></output>
+  </div>
+  <p><button id="neubau">Puffer neu berechnen</button>
+     <button id="zurueck">Alles zurücksetzen</button></p>
+</fieldset>
+
+<fieldset>
+  <legend>Werte für js/sound.js</legend>
+  <p><button id="holen">Werte abholen</button></p>
+  <textarea id="ausgabe" readonly></textarea>
+</fieldset>
+
+<script src="../js/util.js"></script>
+<script src="../js/sound.js"></script>
+<script>
+(function () {
+  var T = TG.ton, K = T.KLANG;
+  var ABLAGE = 'landfracht_klang_werkzeug';
+
+  // Was im Puffer steckt, ueberlebt nur ueber die Ablage: dafuer laedt die
+  // Seite neu, und die Werte muessen vor dem ersten Aufbau wieder drin stehen.
+  try {
+    var alt = JSON.parse(window.localStorage.getItem(ABLAGE) || 'null');
+    if (alt) { for (var s in alt) if (alt.hasOwnProperty(s)) K[s] = alt[s]; }
+  } catch (e) { /* kaputte Ablage einfach ignorieren */ }
+
+  function sichern() {
+    window.localStorage.setItem(ABLAGE, JSON.stringify({
+      BRENN_ANTEIL: K.BRENN_ANTEIL, BERG: K.BERG, NAGELN: K.NAGELN,
+      MODEN: K.MODEN, HOCHPASS: K.HOCHPASS, MEISTER: K.MEISTER,
+      PROBEN_PEGEL: K.PROBEN_PEGEL, PROBEN_HOCHPASS: K.PROBEN_HOCHPASS,
+      LADER: K.LADER
+    }));
+  }
+
+  var el = function (id) { return document.getElementById(id); };
+
+  /* ---- Resonanzen ---- */
+  var NAMEN = ['Block', 'Auspuffsäule', 'Blech', 'Blech oben',
+               'Nageln', 'Nageln hell', 'Schärfe'];
+  var kasten = el('moden');
+  K.MODEN.forEach(function (m, i) {
+    var d = document.createElement('div');
+    d.className = 'mode';
+    d.innerHTML =
+      '<span class="nam">' + (NAMEN[i] || ('Mode ' + i)) + '</span>' +
+      'Hz <input type="range" min="60" max="6000" step="5" value="' + m[0] + '">' +
+      '<output>' + m[0] + '</output>' +
+      'Güte <input type="range" min="0.5" max="18" step="0.1" value="' + m[1] + '">' +
+      '<output>' + m[1] + '</output>' +
+      'Pegel <input type="range" min="0" max="2" step="0.01" value="' + m[2] + '">' +
+      '<output>' + m[2] + '</output>' +
+      '<span class="nam" style="width:6em">' + m[3] + '</span>';
+    kasten.appendChild(d);
+    var reg = d.querySelectorAll('input'), aus = d.querySelectorAll('output');
+    for (var j = 0; j < 3; j++) {
+      (function (j) {
+        reg[j].addEventListener('input', function () {
+          m[j] = parseFloat(reg[j].value);
+          aus[j].textContent = m[j];
+          T.koerperNeu(); sichern();
+        });
+      })(j);
+    }
+  });
+
+  /* ---- Einfache Zahlenregler ---- */
+  ['MEISTER', 'HOCHPASS', 'BRENN_ANTEIL', 'BERG', 'NAGELN'].forEach(function (name) {
+    var r = el(name), o = el('o_' + name);
+    r.value = K[name]; o.textContent = K[name];
+    r.addEventListener('input', function () {
+      K[name] = parseFloat(r.value);
+      o.textContent = K[name];
+      T.koerperNeu(); sichern();
+    });
+  });
+
+  /* ---- Fahrzustand ---- */
+  var VMAX = 24 / 3.6;
+  function zustand() {
+    var tempo = parseFloat(el('tempo').value);
+    el('o_tempo').textContent = (tempo * 3.6).toFixed(1) + ' km/h';
+    el('o_ladung').textContent = Math.round(el('ladung').value * 100) + ' %';
+    return {
+      tempo: tempo, vmax: VMAX,
+      gas: el('gas').checked, bremse: el('bremse').checked,
+      motorAus: el('motorAus').checked,
+      untergrund: el('grund').value,
+      ladung: parseFloat(el('ladung').value)
+    };
+  }
+
+  /* ---- Ausgabe ---- */
+  var lautR = el('laut'), lautO = el('o_laut');
+  function lautZeigen() {
+    lautR.value = T.lautstaerke();
+    lautO.textContent = Math.round(T.lautstaerke() * 100) + ' %';
+  }
+  lautZeigen();
+  lautR.addEventListener('input', function () {
+    T.setzeLautstaerke(parseFloat(lautR.value));
+    lautO.textContent = Math.round(T.lautstaerke() * 100) + ' %';
+  });
+
+  var laeuft = false;
+  el('an').addEventListener('click', function () {
+    if (laeuft) return;
+    laeuft = true;
+    // Werkzeug und Spiel teilen sich die Einstellung. Wer im Spiel mit M
+    // stummgeschaltet hat, saesse hier sonst vor einer toten Seite.
+    if (!T.istAn()) T.setzeAn(true);
+    el('an').textContent = 'läuft';
+    el('an').disabled = true;
+    // start() haengt sich an die Eingabe; dieser Klick ist sie.
+    window.setInterval(function () { T.schritt(0.033, zustand()); }, 33);
+  });
+  T.start();
+
+  window.setInterval(function () {
+    el('lage').textContent = laeuft ? '' : 'noch nicht eingeschaltet';
+    probenZeigen();
+    // Nicht dazwischenfunken, solange jemand am Regler zieht.
+    if (document.activeElement !== lautR) lautZeigen();
+  }, 500);
+
+  /* ---- Aufnahmen ----
+   * Erst nach dem Einschalten bekannt: die Bauart steht fest, sobald der
+   * AudioContext gebaut ist, und der entsteht erst mit der ersten Eingabe.
+   */
+  function probenZeigen() {
+    var art = T.bauart();
+    if (!art) return false;
+    var mitProben = (art === 'proben');
+    el('probenKasten').style.display = mitProben ? '' : 'none';
+    ['synthKasten', 'synthPegel', 'synthAnregung'].forEach(function (id) {
+      el(id).style.display = mitProben ? 'none' : '';
+    });
+    el('probenLage').textContent =
+      art === 'ersatz'
+        ? 'Die eingebetteten Aufnahmen liessen sich nicht lesen — es rechnet gerade.'
+        : '';
+    if (!mitProben) return true;
+
+    if (!el('proben').childNodes.length) {
+      T.bezuege().forEach(function (umin, i) {
+        var d = document.createElement('div');
+        d.className = 'reihe';
+        d.innerHTML = '<label>Probe ' + (i + 1) + ' — Bezugsdrehzahl</label>' +
+          '<input type="range" min="300" max="2600" step="10" value="' + umin + '">' +
+          '<output>' + umin + ' /min</output>';
+        el('proben').appendChild(d);
+        var r = d.querySelector('input'), o = d.querySelector('output');
+        r.addEventListener('input', function () {
+          var w = parseInt(r.value, 10);
+          o.textContent = w + ' /min';
+          T.bezug(i, w);
+        });
+      });
+    }
+    return true;
+  }
+
+  ['PROBEN_PEGEL', 'PROBEN_HOCHPASS', 'LADER'].forEach(function (name) {
+    var r = el(name), o = el('o_' + name);
+    r.value = K[name]; o.textContent = K[name];
+    r.addEventListener('input', function () {
+      K[name] = parseFloat(r.value);
+      o.textContent = K[name];
+      sichern();
+    });
+  });
+
+  /* ---- Neubau und Ausgabe ---- */
+  el('neubau').addEventListener('click', function () { sichern(); location.reload(); });
+  el('zurueck').addEventListener('click', function () {
+    window.localStorage.removeItem(ABLAGE); location.reload();
+  });
+
+  el('holen').addEventListener('click', function () {
+    if (T.bauart() === 'proben') {
+      el('ausgabe').value =
+        '    PROBEN_PEGEL: ' + K.PROBEN_PEGEL + ',\n' +
+        '    PROBEN_HOCHPASS: ' + K.PROBEN_HOCHPASS + ',\n' +
+        '    LADER: ' + K.LADER + '\n\n' +
+        '// Bezugsdrehzahlen fuer den naechsten Aufruf:\n' +
+        '// python werkzeug/klang_einbetten.py ' +
+        T.bezuege().map(function (u, i) {
+          return 'aufnahme' + (i + 1) + '.ogg:' + u;
+        }).join(' ');
+      el('ausgabe').select();
+      return;
+    }
+    var z = [];
+    K.MODEN.forEach(function (m) {
+      z.push('      [' + m[0] + ', ' + m[1] + ', ' + m[2] + ", '" + m[3] + "'],");
+    });
+    z[z.length - 1] = z[z.length - 1].replace(/,$/, '');
+    el('ausgabe').value =
+      '    BRENN_ANTEIL: ' + K.BRENN_ANTEIL + ',\n' +
+      '    BERG: ' + K.BERG + ',\n' +
+      '    NAGELN: ' + K.NAGELN + ',\n\n' +
+      '    MODEN: [\n' + z.join('\n') + '\n    ],\n\n' +
+      '    HOCHPASS: ' + K.HOCHPASS + ',\n' +
+      '    MEISTER: ' + K.MEISTER;
+    el('ausgabe').select();
+  });
+})();
+</script>
+</body>
+</html>

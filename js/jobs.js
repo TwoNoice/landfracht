@@ -51,9 +51,21 @@ TG.auftraege = (function () {
     return 10;
   }
 
-  /** Meter Fahrstrecke in Spielminuten, gerechnet mit gemuetlichem Tempo. */
+  /* Reisetempo, mit dem die Boerse rechnet. Nicht die Spitze des Traktors:
+   * Anfahren, Kurven, Feldwege und der Weg zur Ladestelle druecken den
+   * Schnitt, und auf der gestauchten Karte tun sie das viel staerker als
+   * frueher -- zwischen zwei Kurven liegen jetzt keine 200 m mehr, auf denen
+   * man ausfahren koennte. Nachgemessen laeuft der Starttraktor beladen im
+   * Schnitt 28 km/h ueber das ganze Netz (31 nur auf Landstrasse), obwohl er
+   * 38 km/h koennte. Geplant wird mit 24; die Differenz ist die Reserve, aus
+   * der ein Zeitfenster ueberhaupt zu schaffen ist. Wer die
+   * Hoechstgeschwindigkeiten in data.js aendert oder die Karte umbaut, zieht
+   * diese Zahl mit, sonst haengen die Fristen in der Luft. */
+  var PLANTEMPO = 24;
+
+  /** Meter Fahrstrecke in Spielminuten, gerechnet mit Reisetempo. */
   function fahrzeit(meter, kmh) {
-    var sek = meter / ((kmh || 24) / 3.6);
+    var sek = meter / ((kmh || PLANTEMPO) / 3.6);
     return sek * (TG.spiel.ZEITFAKTOR / 60);
   }
 
@@ -67,30 +79,58 @@ TG.auftraege = (function () {
   /**
    * Erzeugt einen Auftrag. Gibt null zurueck, wenn sich fuer die gewaehlte
    * Ware kein sinnvolles Paar aus Start und Ziel finden laesst.
+   *
+   * wunsch (alles freiwillig):
+   *   art  — nur diese Auftragsart
+   *   von  — muss an diesem Ort losgehen. Damit entstehen die
+   *          Anschlussfuhren, die am Ziel der letzten Lieferung ausliegen.
    */
-  function erzeugen(state, artWunsch) {
+  function erzeugen(state, wunsch) {
+    wunsch = wunsch || {};
     var stufe = D.stufeVonRuf(state.ruf);
     var moeglich = freieArten(stufe);
     if (!moeglich.length) return null;
 
-    var art = artWunsch && moeglich.indexOf(artWunsch) >= 0 ? artWunsch : U.waehle(moeglich);
+    var von, ware;
 
-    // Ware dieser Art waehlen
-    var warenIds = [];
-    for (var w in D.waren) if (D.waren[w].art === art) warenIds.push(w);
-    var ware = U.waehle(warenIds);
+    if (wunsch.von) {
+      // Vom Ort aus gedacht: was gibt der hier ueberhaupt ab, und findet sich
+      // dafuer ein Abnehmer, der nicht derselbe Hof ist?
+      von = W.ort(wunsch.von);
+      if (!von) return null;
+      var kandidaten = von.gibt.filter(function (w) {
+        var sp = D.waren[w];
+        if (!sp || moeglich.indexOf(sp.art) < 0) return false;
+        if (wunsch.art && sp.art !== wunsch.art) return false;
+        return senken(w).some(function (z) { return z.id !== von.id; });
+      });
+      if (!kandidaten.length) return null;
+      ware = U.waehle(kandidaten);
+    } else {
+      var gewaehlt = wunsch.art && moeglich.indexOf(wunsch.art) >= 0 ? wunsch.art : U.waehle(moeglich);
+
+      // Ware dieser Art waehlen
+      var warenIds = [];
+      for (var w in D.waren) if (D.waren[w].art === gewaehlt) warenIds.push(w);
+      ware = U.waehle(warenIds);
+      von = U.waehle(quellen(ware));
+      if (!von) return null;
+    }
+
     var wSpec = D.waren[ware];
+    var art = wSpec.art;
 
-    var von = U.waehle(quellen(ware));
-    var moeglichZiele = senken(ware).filter(function (o) { return o.id !== (von && von.id); });
-    if (!von || !moeglichZiele.length) return null;
+    var moeglichZiele = senken(ware).filter(function (o) { return o.id !== von.id; });
+    if (!moeglichZiele.length) return null;
     var nach = U.waehle(moeglichZiele);
 
     var meter = W.fahrstrecke(von.id, nach.id);
-    if (meter < 300) return null;
+    if (meter < 72) return null;
 
-    // Auf Stufe 1 bleiben die Wege kurz
-    if (stufe === 1 && meter > 2600) return null;
+    // Auf Stufe 1 bleiben die Wege kurz. Nicht aber bei einer Anschlussfuhr:
+    // wer schon am anderen Ende der Karte steht, soll dort auch etwas
+    // aufladen duerfen, statt leer zurueckzufahren.
+    if (stufe === 1 && meter > (wunsch.von ? 880 : 640)) return null;
 
     // ---- Menge ----
     // Die Menge richtet sich nach dem, was der Spieler tatsächlich fassen
@@ -114,8 +154,8 @@ TG.auftraege = (function () {
     var guete = streuung * (schlecht ? U.zufall(0.58, 0.78) : 1);
 
     // ---- Zeitfenster ----
-    var strecke = meter * (2 * fahrten - 1) + 700;          // Anfahrt grob mitgerechnet
-    var netto = fahrzeit(strecke, 24) + fahrten * 2 * 8;    // je Ladevorgang etwas Zeit
+    var strecke = meter * (2 * fahrten - 1) + 170;          // Anfahrt grob mitgerechnet
+    var netto = fahrzeit(strecke, PLANTEMPO) + fahrten * 2 * 8;  // je Ladevorgang etwas Zeit
     var luft = fahrten > 1 ? U.zufall(1.20, 1.55) : U.zufall(1.30, 2.10);
     if (schlecht) luft += 0.35;                             // magere Bezahlung, wenigstens Zeit
     var fenster = Math.round(netto * luft / 15) * 15;
@@ -150,25 +190,63 @@ TG.auftraege = (function () {
     };
   }
 
-  /** Haelt 6 bis 10 Angebote an der Boerse und wirft abgelaufene raus. */
+  /** Wie oft liegt derselbe Weg mit derselben Ware schon aus? */
+  function gleiche(state, j) {
+    return state.boerse.filter(function (b) {
+      return b.ware === j.ware && b.von === j.von && b.nach === j.nach;
+    }).length;
+  }
+
+  /* Wie viele Angebote die Boerse traegt. Frueher waren es 7 bis 10; das
+   * reichte, solange man ohnehin zum Hof zurueckfuhr. Wer unterwegs am Ziel
+   * gleich die naechste Fuhr aufnehmen soll, braucht mehr Auswahl -- sonst
+   * stehen dort nur Wege, fuer die der falsche Anhaenger am Haken haengt. */
+  var BOERSE_MIN = 12, BOERSE_MAX = 16;
+
+  /** Haelt die Boerse gefuellt und wirft abgelaufene Angebote raus. */
   function auffuellen(state) {
     var vorher = state.boerse.length;
     state.boerse = state.boerse.filter(function (j) { return j.gueltigBis > state.zeit; });
 
-    var ziel = U.zufallGanz(7, 10);
+    var ziel = U.zufallGanz(BOERSE_MIN, BOERSE_MAX);
     var versuche = 0;
-    while (state.boerse.length < ziel && versuche < 90) {
+    while (state.boerse.length < ziel && versuche < 140) {
       versuche++;
       var j = erzeugen(state, null);
-      if (!j) continue;
-      // Nicht dreimal derselbe Weg mit derselben Ware
-      var doppelt = state.boerse.some(function (b) {
-        return b.ware === j.ware && b.von === j.von && b.nach === j.nach;
-      });
-      if (doppelt) continue;
+      if (!j || gleiche(state, j)) continue;
       state.boerse.push(j);
     }
     return state.boerse.length - vorher;
+  }
+
+  /**
+   * Anschlussfuhren: sorgt dafuer, dass an einem Ort mindestens `mindestens`
+   * Angebote losgehen. Wird nach jeder Lieferung fuer den Zielort gerufen,
+   * damit die Rueckfahrt nicht leer sein muss.
+   *
+   * Gibt die neu entstandenen Auftraege zurueck.
+   */
+  function anschluss(state, ortId, mindestens) {
+    mindestens = mindestens || 3;
+    var da = state.boerse.filter(function (b) { return b.von === ortId; }).length;
+    var neu = [];
+    var versuche = 0;
+    while (da + neu.length < mindestens && versuche < 60) {
+      versuche++;
+      var j = erzeugen(state, { von: ortId });
+      // Hier darf derselbe Weg zweimal ausliegen. Auf Stufe 1 gibt ein Ort
+      // oft nur eine einzige freigeschaltete Ware her; mit der strengen
+      // Regel der Boerse staende dort dann genau ein Angebot, und die
+      // Rueckfracht waere keine Wahl, sondern eine Ansage.
+      if (!j || gleiche(state, j) >= 2) continue;
+      // Anschluesse liegen laenger aus: man soll sie beim Abladen in Ruhe
+      // ansehen koennen, statt sie waehrend des Ladebalkens zu verpassen.
+      j.gueltigBis = state.zeit + U.zufallGanz(420, 900);
+      j.anschluss = true;
+      state.boerse.push(j);
+      neu.push(j);
+    }
+    return neu;
   }
 
   /** Der Auftrag, mit dem das Spiel sich selbst erklaert. */
@@ -201,6 +279,7 @@ TG.auftraege = (function () {
   return {
     erzeugen: erzeugen,
     auffuellen: auffuellen,
+    anschluss: anschluss,
     ersterAuftrag: ersterAuftrag,
     freieArten: freieArten,
     eigeneKapazitaet: eigeneKapazitaet,

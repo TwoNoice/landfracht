@@ -21,6 +21,12 @@ TG.spiel = (function () {
   /* Stellschrauben fuer die Balance an einem Ort */
   var BAL = {
     startgeld: 8000,
+    /* Wie viele Auftraege gleichzeitig laufen duerfen. Frueher drei -- mit
+     * den Anschlussfuhren am Zielort ist das zu eng: man laedt ab, sieht die
+     * Rueckfracht und darf sie nicht mitnehmen. Fuenf lassen eine Rundfahrt
+     * ueber zwei, drei Hoefe zu, ohne dass die Fristen unuebersichtlich
+     * werden. */
+    maxAuftraege: 5,
     dieselBasis: 1.55,
     verbrauchGrund: 2.60,       // l/h im Stand unter Last
     verbrauchTempo: 1.00,       // l/h je m/s
@@ -38,8 +44,27 @@ TG.spiel = (function () {
   var gespann = new TG.Gespann();
   var uidZaehler = 1;
 
+  /* Zuendung.
+   *
+   * Steht bewusst nicht im Spielstand: ein abgestellter Traktor ist der
+   * richtige Anfangszustand, egal ob man neu anfaengt oder nach Tagen
+   * zurueckkommt. Damit bleibt auch das Speicherformat unberuehrt --
+   * laden() wirft fremde Staende weg, statt sie umzuschreiben.
+   *
+   * anlasser zaehlt die Sekunden herunter, die der Anlasser noch orgelt.
+   * Erst danach laeuft der Motor; das ist der Moment, den der Ton braucht. */
+  var ANLASSER_DAUER = 1.4;
+  var motor = { laeuft: false, anlasser: 0 };
+
   /* Laufender Lade- oder Abladevorgang */
   var vorgang = null;
+
+  /* Pruefstand (js/entwickler.js).
+   *
+   * Zur Laufzeit gefragt, nicht beim Laden: entwickler.js kommt spaeter in
+   * index.html, und ohne die Datei laeuft das Spiel unveraendert weiter. */
+  function pruef(name) { return !!(TG.entwickler && TG.entwickler.hat(name)); }
+  function pruefTempo() { return TG.entwickler ? TG.entwickler.tempo() : 1; }
 
   var horcher = {};   // einfache Ereignisse fuer die Oberflaeche
   function bei(name, fn) { (horcher[name] || (horcher[name] = [])).push(fn); }
@@ -53,6 +78,7 @@ TG.spiel = (function () {
    * ============================================================= */
   function neu() {
     gesperrt = false;
+    motorAbstellen(true);
     state = {
       v: 1,
       geld: BAL.startgeld,
@@ -78,12 +104,28 @@ TG.spiel = (function () {
     state.aktivTraktor = t.uid;
     state.aktivAnhaenger = a.uid;
 
-    var hof = W.ort('hof');
-    gespann.setzen(hof.x + 30, hof.y, -Math.PI / 2);
+    aufHofStellen();
 
     state.boerse.push(TG.auftraege.ersterAuftrag(state));
     TG.auftraege.auffuellen(state);
     return state;
+  }
+
+  /* Startplatz auf dem eigenen Hof. Ein fester Abstand vom Ortsmittelpunkt
+   * stellte das Gespann in den Geraeteschuppen: die Karte ist um 0,24
+   * geschrumpft, die Gebaeude haben ihre Meter behalten, und damit ist die
+   * Scheune naeher an den Mittelpunkt gerueckt als der alte Versatz. Also
+   * nicht rechnen, sondern die Ladezone fragen — die ist von Bauart wegen
+   * frei und passt zum angekoppelten Anhaenger. */
+  function aufHofStellen() {
+    var hof = W.ort('hof');
+    var a = aktiverAnhaenger();
+    var zn = a ? W.zoneFuer(hof, a.spec.art) : (hof.zonen[0] || null);
+    if (!zn) { gespann.setzen(hof.x, hof.y - 34, -Math.PI / 2); return; }
+    // Die Kupplung sitzt hinter der Traktorachse; in die Zone gehoert der
+    // Anhaenger, also den Traktor ein Stueck in Fahrtrichtung vorsetzen.
+    var vor = 6 + a.spec.geo.b;
+    gespann.setzen(zn.x + Math.cos(zn.rot) * vor, zn.y + Math.sin(zn.rot) * vor, zn.rot);
   }
 
   function neuesFahrzeug(typ, id, zustand) {
@@ -107,7 +149,9 @@ TG.spiel = (function () {
   var gesperrt = false;
 
   function speichern() {
-    if (!state || gesperrt) return;
+    // Eingefrorener Pruefstand schreibt nicht: wer mit voller Kasse durch den
+    // Handel geht, soll den erspielten Stand nicht damit ueberschreiben.
+    if (!state || gesperrt || pruef('einfrieren')) return;
     state.pos = { x: gespann.x, y: gespann.y, h: gespann.h, th: gespann.th };
     state.uidZaehler = uidZaehler;
     try {
@@ -124,6 +168,7 @@ TG.spiel = (function () {
     if (!s || s.v !== 1 || !s.fuhrpark || !s.fuhrpark.length) return false;
 
     state = s;
+    motorAbstellen(true);
     uidZaehler = s.uidZaehler || (s.fuhrpark.length + 1);
     if (!state.kredit) state.kredit = { betrag: 0, aufnahme: 0 };
     if (!state.ausruestung) state.ausruestung = [];
@@ -135,8 +180,12 @@ TG.spiel = (function () {
     });
     TG.auftraege.setzeZaehler(hoechste + 1);
 
-    if (state.pos) gespann.setzen(state.pos.x, state.pos.y, state.pos.h);
-    else { var hof = W.ort('hof'); gespann.setzen(hof.x + 70, hof.y + 40, -Math.PI / 2); }
+    /* Ein Stand, der mitten in einem Gebaeude liegt, laesst sich nicht
+     * herausfahren — die Huelle haelt in jede Richtung. Solche Staende gibt
+     * es, seit der alte Startplatz im Schuppen lag; wer einen hat, wird auf
+     * den Hof zurueckgestellt statt eingemauert zu bleiben. */
+    if (state.pos && !W.imGebaeude(state.pos.x, state.pos.y)) gespann.setzen(state.pos.x, state.pos.y, state.pos.h);
+    else { state.pos = null; aufHofStellen(); }
     if (state.pos && state.pos.th !== undefined) gespann.th = state.pos.th;
     return true;
   }
@@ -207,11 +256,16 @@ TG.spiel = (function () {
     var masseAnh = a ? a.spec.leer + ladT : 0;
     var anteil = (a && state.ladung) ? U.clamp(state.ladung.menge / a.spec.kap, 0, 1) : 0;
 
+    /* Der Pruefstand hebt Tempo und Leistung gemeinsam an. Nur die
+     * Hoechstgeschwindigkeit anzuheben hiesse, dass der Weg dorthin mitwaechst
+     * -- bei ×4 waere die halbe Karte Anlauf. */
+    var tf = pruefTempo();
+
     return {
       untergrund: untergrund,
-      ps: t.spec.ps,
+      ps: t.spec.ps * tf,
       achsstand: t.spec.achsstand,
-      vmaxKmh: t.spec.vmax * aw.speed,
+      vmaxKmh: t.spec.vmax * aw.speed * tf,
       masseTraktor: t.spec.masse,
       masseGesamt: t.spec.masse + masseAnh,
       ladungsAnteil: anteil,
@@ -260,6 +314,7 @@ TG.spiel = (function () {
 
   /** Aufträge, deren Zeitfenster deutlich gerissen ist, platzen. */
   function pruefeFristen() {
+    if (pruef('fristlos')) return;
     for (var i = state.angenommen.length - 1; i >= 0; i--) {
       var j = state.angenommen[i];
       var grenze = j.faelligUm + j.fensterMin * 0.5;
@@ -279,6 +334,49 @@ TG.spiel = (function () {
   }
 
   /* =============================================================
+   *  Zuendung
+   * ============================================================= */
+  function motorLaeuft() { return motor.laeuft; }
+  function motorOrgelt() { return motor.anlasser > 0; }
+
+  function motorStarten() {
+    if (motor.laeuft) return { ok: false, grund: 'Der Motor läuft schon.' };
+    if (motor.anlasser > 0) return { ok: false, grund: 'Der Anlasser dreht bereits.' };
+    var t = aktiverTraktor();
+    if (!t || t.f.tank <= 0.05) return { ok: false, grund: 'Kein Diesel im Tank — da orgelt der Anlasser umsonst.' };
+    motor.anlasser = ANLASSER_DAUER;
+    melden('anlasser', ANLASSER_DAUER);
+    return { ok: true, dauer: ANLASSER_DAUER };
+  }
+
+  /** still = true unterdrueckt die Meldung; fuer neu() und laden(). */
+  function motorAbstellen(still) {
+    var lief = motor.laeuft || motor.anlasser > 0;
+    motor.laeuft = false;
+    motor.anlasser = 0;
+    if (lief && !still) melden('motor', false);
+    return { ok: true, laeuft: false };
+  }
+
+  function motorUmschalten() {
+    if (motor.laeuft || motor.anlasser > 0) return motorAbstellen(false);
+    var e = motorStarten();
+    return e.ok ? { ok: true, laeuft: false, startet: true } : e;
+  }
+
+  /* Laesst den Anlasser weiterdrehen. Laeuft ausserhalb von schritt(), weil
+   * der Motor auch bei offenem Panel anspringen muss -- sonst orgelt er
+   * ewig, wenn man ihn im Buch anlaesst. */
+  function motorSchritt(dt) {
+    if (motor.anlasser <= 0) return;
+    motor.anlasser -= dt;
+    if (motor.anlasser > 0) return;
+    motor.anlasser = 0;
+    motor.laeuft = true;
+    melden('motor', true);
+  }
+
+  /* =============================================================
    *  Fahrschritt
    * ============================================================= */
   function schritt(dt, eingabe) {
@@ -286,7 +384,18 @@ TG.spiel = (function () {
     var t = aktiverTraktor(), a = aktiverAnhaenger();
 
     var leer = t.f.tank <= 0.05;
-    if (leer) { eingabe = { gas: false, bremse: eingabe.bremse, links: eingabe.links, rechts: eingabe.rechts, handbremse: eingabe.handbremse }; }
+    if (leer && motor.laeuft) {
+      motorAbstellen(true);
+      melden('motor', false);
+      melden('meldung', { text: 'Der Motor ist ausgegangen. Der Tank ist leer.', art: 'schlecht' });
+    }
+
+    // Ohne laufenden Motor gibt es keinen Antrieb. Gebremst und gelenkt wird
+    // weiter -- ein rollendes Gespann muss sich noch abfangen lassen.
+    if (!motor.laeuft) {
+      eingabe = { gas: false, bremse: eingabe.bremse, links: eingabe.links, rechts: eingabe.rechts,
+                  handbremse: eingabe.handbremse, lenkZiel: eingabe.lenkZiel };
+    }
 
     var vorX = gespann.x, vorY = gespann.y;
     gespann.schritt(dt, eingabe, tech);
@@ -303,23 +412,31 @@ TG.spiel = (function () {
             * (1 + 0.045 * ladungTonnen())
             * tech.verbrauchFaktor * u.verbrauch
             * (1 + (100 - t.f.zustand) / 240);
-    var liter = lph * (spielminuten / 60);
-    if (!leer) {
+    // Nur ein laufender Motor sauft. Der Anlasser zieht ebenfalls etwas --
+    // wer lange orgelt, macht sich den Rest im Tank selbst kaputt.
+    var liter = motor.laeuft ? lph * (spielminuten / 60)
+              : (motor.anlasser > 0 ? 0.06 * dt : 0);
+    if (pruef('tank')) liter = 0;
+    if (liter > 0) {
       t.f.tank = Math.max(0, t.f.tank - liter);
       state.stats.diesel += liter;
     }
 
-    // Verschleiss
+    // Verschleiss. Die Statistik zaehlt die Meter auch auf dem Pruefstand
+    // weiter -- sie ist beim Ausprobieren die interessantere Zahl.
+    var heil = pruef('heil');
     if (meter > 0) {
-      var km = meter / 1000;
-      var abnutzung = BAL.verschleissProKm * u.verschleiss * (1 + 0.02 * ladungTonnen()) * km;
-      t.f.zustand = U.clamp(t.f.zustand - abnutzung, 0, 100);
-      if (a) a.f.zustand = U.clamp(a.f.zustand - abnutzung * 0.7, 0, 100);
+      if (!heil) {
+        var km = meter / 1000;
+        var abnutzung = BAL.verschleissProKm * u.verschleiss * (1 + 0.02 * ladungTonnen()) * km;
+        t.f.zustand = U.clamp(t.f.zustand - abnutzung, 0, 100);
+        if (a) a.f.zustand = U.clamp(a.f.zustand - abnutzung * 0.7, 0, 100);
+      }
       state.stats.meter += meter;
     }
 
     // Anstossen kostet Substanz
-    if (gespann.stoss > 2.5) {
+    if (gespann.stoss > 2.5 && !heil) {
       var schaden = U.clamp(gespann.stoss * 0.35, 0, 6);
       t.f.zustand = U.clamp(t.f.zustand - schaden, 0, 100);
       if (a) a.f.zustand = U.clamp(a.f.zustand - schaden * 0.8, 0, 100);
@@ -329,7 +446,7 @@ TG.spiel = (function () {
     pruefeFristen();
     vorgangSchritt(dt);
 
-    return { meter: meter, untergrund: tech.untergrund, leer: leer, lph: lph };
+    return { meter: meter, untergrund: tech.untergrund, leer: leer, lph: lph, motor: motor.laeuft };
   }
 
   /* =============================================================
@@ -346,7 +463,7 @@ TG.spiel = (function () {
         var zn = o.zonen[z];
         if (zn.arten.indexOf(a.spec.art) < 0) continue;
         if (U.inRechteck(p.x, p.y, zn)) {
-          if (zn.eng) {
+          if (zn.eng && !pruef('schief')) {
             // Enge Zonen wollen sauber ausgerichtet sein
             var d = Math.abs(U.winkel(gespann.th - zn.rot));
             var ok = d < 0.5 || Math.abs(d - Math.PI) < 0.5;
@@ -367,16 +484,16 @@ TG.spiel = (function () {
       var gross = { x: zn.x, y: zn.y, w: zn.w + 14, h: zn.h + 14, rot: zn.rot };
       if (U.inRechteck(gespann.x, gespann.y, gross)) return true;
     }
-    return U.abstand(gespann.x, gespann.y, o.x, o.y) < 34;
+    return U.abstand(gespann.x, gespann.y, o.x, o.y) < 22;
   }
 
   function amHof() {
     var o = W.ort('hof');
-    return U.abstand(gespann.x, gespann.y, o.x, o.y) < 110;
+    return U.abstand(gespann.x, gespann.y, o.x, o.y) < 60;
   }
   function beimHaendler() {
     var o = W.ort('haendler');
-    return U.abstand(gespann.x, gespann.y, o.x, o.y) < 110;
+    return U.abstand(gespann.x, gespann.y, o.x, o.y) < 60;
   }
 
   /** Was liesse sich hier gerade laden oder abladen? */
@@ -425,6 +542,9 @@ TG.spiel = (function () {
 
     if (!vorgang || vorgang.jobId !== c.job.id || vorgang.art !== c.art) {
       var dauer = c.job.art === 'fahrzeug' ? 4 + 2.5 * c.menge : U.clamp(2.2 + c.menge * 0.14, 2.5, 8);
+      // Nicht auf null: der Balken soll auch auf dem Pruefstand einmal
+      // aufblitzen, sonst ist nicht zu sehen, ob geladen wurde.
+      if (pruef('sofort')) dauer = 0.5;
       vorgang = { art: c.art, jobId: c.job.id, menge: c.menge, dauer: dauer, t: 0 };
     }
 
@@ -467,13 +587,44 @@ TG.spiel = (function () {
       });
       speichern();
     }
+    rueckfracht(j.nach);
+  }
+
+  /**
+   * Sorgt dafuer, dass an dem Ort, an dem man gerade abgeladen hat, etwas
+   * zum Mitnehmen ausliegt. Ohne das ist jede zweite Fahrt eine Leerfahrt
+   * zurueck zum Hof, und die Boerse muss man dafuer auch noch aufsuchen.
+   */
+  function rueckfracht(ortId) {
+    var neu = TG.auftraege.anschluss(state, ortId, 3);
+    var offen = state.boerse.filter(function (b) { return b.von === ortId; });
+    if (!offen.length) return;
+    melden('meldung', {
+      text: 'In ' + W.ort(ortId).kurz + ' liegt Rückfracht bereit: ' + offen.length +
+            (offen.length === 1 ? ' Auftrag' : ' Aufträge') + ' von hier aus. Börse mit B.'
+    });
+    speichern();
+    return neu;
+  }
+
+  /** Der Ort, an dem das Gespann gerade steht -- oder null. */
+  function naheOrt() {
+    var beste = null, bd = 1e9;
+    for (var i = 0; i < W.orte.length; i++) {
+      var o = W.orte[i];
+      var d = U.abstand(gespann.x, gespann.y, o.x, o.y);
+      if (d < 45 && d < bd) { bd = d; beste = o; }
+    }
+    return beste;
   }
 
   /* =============================================================
    *  Auftragsabwicklung
    * ============================================================= */
   function annehmen(job) {
-    if (state.angenommen.length >= 3) return { ok: false, grund: 'Mehr als drei Aufträge gleichzeitig sind nicht drin.' };
+    if (state.angenommen.length >= BAL.maxAuftraege) {
+      return { ok: false, grund: 'Mehr als ' + BAL.maxAuftraege + ' Aufträge gleichzeitig sind nicht drin.' };
+    }
     var i = state.boerse.indexOf(job);
     if (i < 0) return { ok: false, grund: 'Der Auftrag ist nicht mehr zu haben.' };
     state.boerse.splice(i, 1);
@@ -761,10 +912,17 @@ TG.spiel = (function () {
     tag: tag, woche: woche, stufe: stufe, zeitVoran: zeitVoran,
     schritt: schritt,
 
+    motorLaeuft: motorLaeuft, motorOrgelt: motorOrgelt, zuendungSchritt: motorSchritt,
+    motorStarten: motorStarten, motorAbstellen: motorAbstellen, motorUmschalten: motorUmschalten,
+
     aktuelleZone: aktuelleZone, anTankstelle: anTankstelle, amHof: amHof, beimHaendler: beimHaendler,
+    naheOrt: naheOrt, rueckfracht: rueckfracht,
     ladeChance: ladeChance, angenommenerAuftrag: angenommenerAuftrag,
 
     annehmen: annehmen, abbrechen: abbrechen,
+    // abrechnen() gehoert eigentlich hinter die Ladezone; der Pruefstand
+    // schliesst damit einen Auftrag ab, ohne ihn zu fahren.
+    abrechnen: abrechnen,
 
     tankKosten: tankKosten, tanken: tanken,
     kanisterKosten: kanisterKosten, kanister: kanister,

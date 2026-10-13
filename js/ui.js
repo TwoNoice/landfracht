@@ -25,7 +25,7 @@ TG.ui = (function () {
     el.diesel = $('kf-diesel'); el.dieselB = $('kf-diesel-b');
     el.zustand = $('kf-zustand'); el.zustandB = $('kf-zustand-b');
     el.auftrag = $('kf-auftrag');
-    el.kmh = $('t-kmh'); el.gang = $('t-gang'); el.ladung = $('t-ladung');
+    el.kmh = $('t-kmh'); el.gang = $('t-gang'); el.ladung = $('t-ladung'); el.motor = $('t-motor');
 
     document.querySelectorAll('[data-panel]').forEach(function (b) {
       b.addEventListener('click', function () { umschalten(b.getAttribute('data-panel')); });
@@ -44,26 +44,37 @@ TG.ui = (function () {
   }
 
   function oeffnen(name) {
+    if (name === 'pruefstand' && !(TG.entwickler && TG.entwickler.an())) return;
     offen = name;
     el.panel.classList.remove('zu');
+    // Die Karte braucht mehr Breite als eine Liste; die Lade bekommt dafuer
+    // eine eigene Klasse statt eines zweiten Panels.
+    el.panel.classList.toggle('breit', name === 'karte');
     zeichnen();
   }
 
   function schliessen() {
     offen = null;
     el.panel.classList.add('zu');
+    el.panel.classList.remove('breit');
   }
 
   function istOffen() { return !!offen; }
 
   function zeichnen() {
     if (!offen) return;
-    var titel = { boerse: 'Auftragsbörse', hof: 'Hof', haendler: 'Landtechnik Vosskamp', buch: 'Buch' }[offen];
+    // Der Pruefstand steht nur offen, solange der Entwicklermodus laeuft --
+    // auch dann, wenn er sich selbst gerade abgeschaltet hat.
+    if (offen === 'pruefstand' && !(TG.entwickler && TG.entwickler.an())) { schliessen(); return; }
+    var titel = { boerse: 'Auftragsbörse', hof: 'Hof', haendler: 'Landtechnik Vosskamp', buch: 'Buch', karte: 'Karte', pruefstand: 'Prüfstand' }[offen];
     el.titel.textContent = titel;
     el.inhalt.innerHTML =
       offen === 'boerse' ? boerse() :
       offen === 'hof' ? hof() :
-      offen === 'haendler' ? haendler() : buch();
+      offen === 'haendler' ? haendler() :
+      offen === 'karte' ? kartenblatt() :
+      offen === 'pruefstand' ? TG.entwickler.panel() : buch();
+    if (offen === 'karte') karteAufbauen();
   }
 
   /* ---------------- Kopfleiste ---------------- */
@@ -108,6 +119,12 @@ TG.ui = (function () {
     var g = S.gespann;
     el.kmh.textContent = Math.round(Math.abs(g.v) * 3.6);
     el.gang.textContent = g.v > 0.15 ? 'V' : (g.v < -0.15 ? 'R' : 'N');
+
+    // Zuendung. Steht im Tacho, weil man dort ohnehin hinsieht, wenn sich
+    // nichts bewegt.
+    var laeuft = S.motorLaeuft(), orgelt = S.motorOrgelt();
+    el.motor.textContent = orgelt ? 'Anlasser …' : (laeuft ? 'Motor läuft' : 'Motor aus · I');
+    el.motor.className = 'motor' + (laeuft ? ' an' : (orgelt ? ' orgelt' : ' aus'));
     if (s.ladung) {
       el.ladung.textContent = U.zahl(s.ladung.menge) + ' ' + D.arten[D.waren[s.ladung.ware].art].einheit + ' ' + D.waren[s.ladung.ware].name;
       el.ladung.className = 'ladung voll';
@@ -165,25 +182,43 @@ TG.ui = (function () {
     }
 
     if (s.angenommen.length) {
-      h += '<div class="ueberschrift">Angenommen (' + s.angenommen.length + ' von 3)</div>';
+      h += '<div class="ueberschrift">Angenommen (' + s.angenommen.length + ' von ' + S.BAL.maxAuftraege + ')</div>';
       s.angenommen.forEach(function (j) { h += karte(j, true); });
     }
 
-    h += '<div class="ueberschrift">Angebote</div>';
+    var liste = s.boerse.slice();
+    liste.sort(sortieren);
+
+    // Was von hier losgeht, steht oben. Wer gerade abgeladen hat, soll die
+    // Rueckfracht sehen, ohne durch die ganze Liste zu scrollen.
+    var hier = S.naheOrt();
+    var vonHier = [];
+    if (hier) {
+      vonHier = liste.filter(function (j) { return j.von === hier.id; });
+      liste = liste.filter(function (j) { return j.von !== hier.id; });
+    }
+
+    if (vonHier.length) {
+      h += '<div class="ueberschrift">Ab ' + U.html(hier.name) + ' — hier stehst du</div>';
+      h += '<div class="hinweisbox">Diese Fuhren gehen von hier los. Annehmen, in die Zone stellen, laden — ' +
+           'die Rückfahrt muss nicht leer sein.</div>';
+      vonHier.forEach(function (j) { h += karte(j, false); });
+    }
+
+    h += '<div class="ueberschrift">' + (vonHier.length ? 'Übrige Angebote' : 'Angebote') + '</div>';
     h += '<div class="sortierung"><span class="k">Sortieren:</span>' +
       knopfSort('lohn', 'Bezahlung') + knopfSort('km', 'Entfernung') + knopfSort('zeit', 'Restzeit') + '</div>';
 
-    var liste = s.boerse.slice();
-    liste.sort(function (a, b) {
-      if (a.einstieg !== b.einstieg) return a.einstieg ? -1 : 1;   // der erste Auftrag steht oben
-      if (sortierung === 'lohn') return b.lohn - a.lohn;
-      if (sortierung === 'km') return a.meter - b.meter;
-      return (a.gueltigBis - s.zeit) - (b.gueltigBis - s.zeit);
-    });
-
-    if (!liste.length) h += '<div class="leerhinweis">Gerade liegt nichts aus. Es kommt gleich Neues herein.</div>';
+    if (!liste.length && !vonHier.length) h += '<div class="leerhinweis">Gerade liegt nichts aus. Es kommt gleich Neues herein.</div>';
     liste.forEach(function (j) { h += karte(j, false); });
     return h;
+  }
+
+  function sortieren(a, b) {
+    if (a.einstieg !== b.einstieg) return a.einstieg ? -1 : 1;   // der erste Auftrag steht oben
+    if (sortierung === 'lohn') return b.lohn - a.lohn;
+    if (sortierung === 'km') return a.meter - b.meter;
+    return (a.gueltigBis - S.state.zeit) - (b.gueltigBis - S.state.zeit);
   }
 
   function knopfSort(id, text) {
@@ -202,6 +237,7 @@ TG.ui = (function () {
     if (guete < 0.86) marken += '<span class="marke schlecht">mager bezahlt</span> ';
     else if (guete > 1.12) marken += '<span class="marke gut">gut bezahlt</span> ';
     if (j.eilig) marken += '<span class="marke eilig">enges Fenster</span> ';
+    if (j.anschluss) marken += '<span class="marke gut">Rückfracht</span> ';
     if (!hatAnh) marken += '<span class="marke schlecht">' + U.html(art.anhaenger) + ' fehlt</span> ';
     if (j.fahrten > 1) marken += '<span class="marke">' + j.fahrten + ' Fahrten</span> ';
 
@@ -233,7 +269,7 @@ TG.ui = (function () {
       h += '<button class="tat warn" data-tat="abbrechen" data-id="' + j.id + '">Auftrag abbrechen</button>';
     } else {
       var sperre = '', grund = '';
-      if (s.angenommen.length >= 3) { sperre = ' disabled'; grund = 'Drei Aufträge sind das Höchste.'; }
+      if (s.angenommen.length >= S.BAL.maxAuftraege) { sperre = ' disabled'; grund = S.BAL.maxAuftraege + ' Aufträge sind das Höchste.'; }
       else if (!hatAnh) { sperre = ' disabled'; grund = 'Dafür fehlt dir ein ' + art.anhaenger + '.'; }
       h += '<button class="tat haupt" data-tat="annehmen" data-id="' + j.id + '"' + sperre + '>Auftrag annehmen</button>';
       if (grund) h += '<span style="align-self:center;color:#9aa68a;font-size:12px">' + U.html(grund) + '</span>';
@@ -461,6 +497,30 @@ TG.ui = (function () {
            '<div class="weg">' + U.html(x.frei) + '</div></div>';
     });
 
+    h += '<div class="ueberschrift">Steuerung</div>';
+    var mausAn = TG.steuerung && TG.steuerung.istAn();
+    h += '<div class="karte">';
+    h += '<div class="weg">Mit der Maus lenkt der Traktor dorthin, wo der Zeiger steht. ' +
+         'Linke Maustaste gibt Gas, rechte bremst und fährt rückwärts. Die Tasten bleiben ' +
+         'daneben in Betrieb. Taste <b>L</b> schaltet um.</div>';
+    // Zwei Knoepfe statt eines Schalters: derselbe Umschalter wie im
+    // Titelbild, damit an beiden Stellen dasselbe steht.
+    h += '<div class="wahl-knoepfe" style="margin-top:8px">' +
+         '<button type="button" data-steuerart="tasten"' + (mausAn ? '' : ' class="aktiv"') + '>Tastatur</button>' +
+         '<button type="button" data-steuerart="maus"' + (mausAn ? ' class="aktiv"' : '') + '>Maus</button>' +
+         '</div>';
+    h += '</div>';
+
+    h += '<div class="ueberschrift">Motor</div>';
+    h += '<div class="karte">';
+    h += '<div class="weg">Der Schlepper startet abgestellt — auch nach dem Weiterspielen. ' +
+         'Taste <b>I</b> dreht den Anlasser und stellt ihn wieder ab. Ohne laufenden Motor ' +
+         'gibt es keinen Antrieb; bremsen und lenken geht weiter.</div>';
+    h += '<div class="knopfleiste" style="margin-top:8px">' +
+         '<button class="tat' + (S.motorLaeuft() ? ' haupt' : '') + '" data-tat="motor">' +
+         (S.motorLaeuft() || S.motorOrgelt() ? 'Motor abstellen' : 'Motor anlassen') + '</button></div>';
+    h += '</div>';
+
     h += '<div class="ueberschrift">Ton</div>';
     h += '<div class="karte">';
     h += '<div class="weg">Motor, Untergrund und die Geräusche vom Feld. Taste <b>M</b> schaltet um.</div>';
@@ -483,6 +543,130 @@ TG.ui = (function () {
   }
 
   /* =============================================================
+   *  Kartenbildschirm
+   *
+   *  Gezeichnet wird mit `TG.zeichnen.karte()` — derselben Routine wie die
+   *  Minikarte. Hier steht nur, welchen Ausschnitt sie bekommt und wie man
+   *  ihn mit Rad und Maus verschiebt.
+   *
+   *  Die Uhr steht still, solange ein Panel offen ist, also gibt es keine
+   *  Schleife: gezeichnet wird beim Oeffnen und nach jeder Eingabe.
+   * ============================================================= */
+  var kartenBlick = null;        // { x, y, spanne } in Metern, null = ganze Karte
+  var KARTE_MIN = 70, KARTE_MAX = 720;
+  // Griffe fuer die Knoepfe in der Leiste; `karteAufbauen()` setzt sie neu,
+  // weil die Leinwand bei jedem Oeffnen des Panels eine andere ist.
+  var karteMalen = function () {};
+  var karteGanz = function () { return { x: W.GROESSE / 2, y: W.GROESSE / 2, spanne: KARTE_MAX }; };
+
+  function kartenblatt() {
+    var h = '';
+    h += '<canvas id="kartenblatt"></canvas>';
+    h += '<div class="karten-leiste">' +
+         '<button class="tat" data-tat="karte-alles">Ganze Karte</button>' +
+         '<button class="tat" data-tat="karte-gespann">Zum Gespann</button>' +
+         '<span class="karten-mass" id="karten-mass"></span>' +
+         '</div>';
+    h += '<div class="karten-legende">' +
+         '<span><i style="background:#8d8d84"></i>Landstraße</span>' +
+         '<span><i style="background:#8e7a52"></i>Feldweg</span>' +
+         '<span><i style="background:#9ede63;border-radius:50%;width:8px;height:8px"></i>eigener Hof</span>' +
+         '<span><i style="background:#e8c14a;border-radius:50%;width:8px;height:8px"></i>Ziel des Auftrags</span>' +
+         '<span><i style="background:#ff6b4a;border-radius:50%;width:8px;height:8px"></i>Gespann</span>' +
+         '</div>';
+    h += '<div class="karten-hinweis">Rad zieht heran, Ziehen verschiebt, Doppelklick zeigt wieder alles. ' +
+         'Ortsnamen weichen einander aus — wo es eng wird, bleibt das Auftragsziel stehen.</div>';
+    return h;
+  }
+
+  function karteAufbauen() {
+    var leinwand = $('kartenblatt');
+    if (!leinwand) return;
+
+    if (!kartenBlick) kartenBlick = ganzeKarte();
+
+    function ganzeKarte() {
+      return { x: W.GROESSE / 2, y: W.GROESSE / 2, spanne: KARTE_MAX };
+    }
+
+    function malen() {
+      // Die Aufloesung erst hier setzen: vor dem Einhaengen ins Dokument hat
+      // die Leinwand noch keine Breite.
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      var bp = leinwand.clientWidth, hp = leinwand.clientHeight;
+      if (!bp || !hp) return;
+      if (leinwand.width !== Math.round(bp * dpr)) {
+        leinwand.width = Math.round(bp * dpr);
+        leinwand.height = Math.round(hp * dpr);
+      }
+      var k = leinwand.getContext('2d');
+      k.setTransform(dpr, 0, 0, dpr, 0, 0);
+      begrenzen();
+      TG.zeichnen.karte(k, bp, hp, kartenBlick, kartenBlick.spanne, S,
+        { namen: true, zielLinie: true });
+      var mass = $('karten-mass');
+      if (mass) mass.textContent = 'Bildausschnitt ' + U.strecke(kartenBlick.spanne);
+    }
+
+    /* Der Ausschnitt darf nicht neben der Karte stehen. Ist er groesser als
+     * die Karte, wird sie mittig gezeigt, sonst haengt sie in der Ecke. */
+    function begrenzen() {
+      var b = kartenBlick;
+      b.spanne = U.clamp(b.spanne, KARTE_MIN, KARTE_MAX);
+      var hw = b.spanne / 2;
+      if (hw * 2 >= W.GROESSE) { b.x = W.GROESSE / 2; }
+      else b.x = U.clamp(b.x, hw, W.GROESSE - hw);
+      var hh = hw * (leinwand.clientHeight / Math.max(1, leinwand.clientWidth));
+      if (hh * 2 >= W.GROESSE) { b.y = W.GROESSE / 2; }
+      else b.y = U.clamp(b.y, hh, W.GROESSE - hh);
+    }
+
+    function zuWelt(e) {
+      var r = leinwand.getBoundingClientRect();
+      var m = r.width / kartenBlick.spanne;
+      return {
+        x: (e.clientX - r.left - r.width / 2) / m + kartenBlick.x,
+        y: (e.clientY - r.top - r.height / 2) / m + kartenBlick.y
+      };
+    }
+
+    leinwand.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      // Um den Zeiger herum zoomen, nicht um die Bildmitte: sonst rutscht das,
+      // was man ansieht, beim Heranziehen aus dem Bild.
+      var vorher = zuWelt(e);
+      kartenBlick.spanne = U.clamp(kartenBlick.spanne * (e.deltaY > 0 ? 1.22 : 0.82), KARTE_MIN, KARTE_MAX);
+      var nachher = zuWelt(e);
+      kartenBlick.x += vorher.x - nachher.x;
+      kartenBlick.y += vorher.y - nachher.y;
+      malen();
+    }, { passive: false });
+
+    var zieht = null;
+    leinwand.addEventListener('pointerdown', function (e) {
+      zieht = { welt: zuWelt(e) };
+      leinwand.classList.add('zieht');
+      leinwand.setPointerCapture(e.pointerId);
+    });
+    leinwand.addEventListener('pointermove', function (e) {
+      if (!zieht) return;
+      var jetzt = zuWelt(e);
+      kartenBlick.x += zieht.welt.x - jetzt.x;
+      kartenBlick.y += zieht.welt.y - jetzt.y;
+      malen();
+    });
+    function loslassen() { zieht = null; leinwand.classList.remove('zieht'); }
+    leinwand.addEventListener('pointerup', loslassen);
+    leinwand.addEventListener('pointercancel', loslassen);
+    leinwand.addEventListener('dblclick', function () { kartenBlick = ganzeKarte(); malen(); });
+
+    karteMalen = malen;
+    karteGanz = ganzeKarte;
+    malen();
+  }
+
+
+  /* =============================================================
    *  Eingaben in den Panels
    * ============================================================= */
   function schieber(e) {
@@ -499,14 +683,60 @@ TG.ui = (function () {
   }
 
   function klick(e) {
+    // Der Umschalter Tastatur/Maus traegt kein data-tat, sondern dieselbe
+    // Kennung wie der im Titelbild.
+    var w = e.target.closest ? e.target.closest('[data-steuerart]') : null;
+    if (w) {
+      var willMaus = w.getAttribute('data-steuerart') === 'maus';
+      if (TG.steuerung.art() !== w.getAttribute('data-steuerart')) {
+        TG.steuerung.setzen(w.getAttribute('data-steuerart'));
+        meldung(willMaus
+          ? 'Maussteuerung an: lenken zum Zeiger, linke Maustaste Gas, rechte Bremse.'
+          : 'Tastatursteuerung an. Gelenkt wird mit den Pfeiltasten.');
+      }
+      zeichnen();
+      return;
+    }
+
     var b = e.target.closest ? e.target.closest('[data-tat]') : null;
     if (!b || b.disabled) return;
     var tat = b.getAttribute('data-tat');
     var s = S.state;
     var erg;
 
+    // Die Taten des Pruefstands tragen alle das Kuerzel `p-` und werden
+    // druebengeschickt, damit der Entwicklermodus fuer sich bleibt.
+    if (TG.entwickler && TG.entwickler.klick(b, meldung)) {
+      zeichnen();
+      kopfleiste();
+      return;
+    }
+
     if (tat === 'sort') { sortierung = b.getAttribute('data-wert'); zeichnen(); return; }
+    if (tat === 'karte-alles') { kartenBlick = karteGanz(); karteMalen(); return; }
+    if (tat === 'karte-gespann') {
+      var gp = S.gespann;
+      kartenBlick = { x: gp.x, y: gp.y, spanne: 170 };
+      karteMalen();
+      return;
+    }
     if (tat === 'ton') { TG.ton.umschalten(); zeichnen(); return; }
+    if (tat === 'maus') {
+      meldung(TG.steuerung.umschalten()
+        ? 'Maussteuerung an: lenken zum Zeiger, linke Maustaste Gas, rechte Bremse.'
+        : 'Maussteuerung aus. Gelenkt wird wieder mit den Pfeiltasten.');
+      zeichnen();
+      return;
+    }
+    if (tat === 'motor') {
+      if (S.motorLaeuft() || S.motorOrgelt()) { S.motorAbstellen(false); meldung('Motor aus.'); }
+      else {
+        erg = S.motorStarten();
+        if (!erg.ok) meldung(erg.grund, 'schlecht');
+      }
+      zeichnen();
+      return;
+    }
 
     if (tat === 'annehmen') {
       var j = s.boerse.filter(function (x) { return x.id === b.getAttribute('data-id'); })[0];
